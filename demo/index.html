@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>STRIDE Athletics — Performance Footwear</title>
+<style>
+  *{box-sizing:border-box}
+  body{margin:0;font:14px/1.45 Inter,system-ui,sans-serif;background:#f5f5f0;color:#18181b}
+  .nav{height:72px;background:#18181b;color:#fff;display:flex;align-items:center;justify-content:space-between;padding:0 40px;position:sticky;top:0;z-index:10}
+  .logo{font-weight:900;letter-spacing:-.05em;font-size:20px;display:flex;align-items:center;gap:8px}
+  .logo-badge{font-size:9px;background:#d7ff4f;color:#09090b;padding:2px 6px;border-radius:4px;font-weight:700;letter-spacing:.08em}
+  .links{display:flex;gap:24px}
+  .links a{color:#a1a1aa;text-decoration:none;font-weight:500;transition:color .2s}
+  .links a:hover{color:#fff}
+  /* INTENTIONAL A11Y BUG: Cart button has no text and no aria-label, only CSS emoji */
+  .cart{border:0;background:#27272a;color:#fff;width:38px;height:38px;border-radius:50%;cursor:pointer;font-size:16px;position:relative;display:flex;align-items:center;justify-content:center}
+  .cart::before{content:"🛒"}
+  .cart-count{position:absolute;top:-4px;right:-4px;background:#d7ff4f;color:#09090b;font-size:10px;font-weight:800;width:18px;height:18px;border-radius:50%;display:none;align-items:center;justify-content:center}
+  .wrap{max-width:1160px;margin:0 auto;padding:40px 24px}
+  .hero{display:grid;grid-template-columns:1.2fr .8fr;gap:32px;align-items:center;background:#fff;border:1px solid #e4e4e7;border-radius:20px;padding:36px;margin-bottom:28px}
+  .hero h1{font-size:52px;line-height:1;letter-spacing:-.05em;margin:0 0 14px}
+  .hero p{max-width:520px;color:#71717a;font-size:16px;line-height:1.5}
+  .search-box{display:flex;background:#f4f4f5;border:1px solid #e4e4e7;border-radius:12px;padding:6px;margin-top:20px}
+  .search-box input{flex:1;border:0;outline:0;padding:10px 14px;background:transparent;font:inherit;font-size:14px}
+  .search-box button{border:0;background:#18181b;color:#fff;padding:0 20px;border-radius:8px;font-weight:600;cursor:pointer}
+  .goal-card{background:#18181b;color:#fff;border-radius:16px;padding:24px}
+  .goal-card .tag{color:#d7ff4f;font-size:11px;letter-spacing:.12em;text-transform:uppercase;font-weight:700}
+  .goal-card p{color:#d4d4d8;font-size:16px;margin-top:8px;font-style:italic}
+  .filters{display:flex;gap:10px;margin:24px 0;align-items:center}
+  .filters-label{font-size:12px;font-weight:700;color:#71717a;text-transform:uppercase;letter-spacing:.08em}
+  .filters button{background:#fff;border:1px solid #d4d4d8;padding:8px 16px;border-radius:999px;cursor:pointer;font-weight:600;font-size:13px;transition:all .2s}
+  .filters button.active{background:#18181b;color:#fff;border-color:#18181b}
+  /* INTENTIONAL CONTRAST BUG: Grey low-contrast filter */
+  #allFilter{color:#a3a3a3;background:#fff}
+  .grid{display:grid;grid-template-columns:repeat(3,1fr);gap:20px}
+  .card{background:#fff;border:1px solid #e4e4e7;border-radius:16px;overflow:hidden;transition:transform .2s,box-shadow .2s;display:flex;flex-direction:column}
+  .card:hover{transform:translateY(-2px);box-shadow:0 12px 30px rgba(0,0,0,.06)}
+  .visual{height:200px;background:linear-gradient(135deg,#e4e4e7,#d4d4d8);display:grid;place-items:center;font-size:56px}
+  .card-body{padding:20px;display:flex;flex-direction:column;flex:1}
+  .tag{font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:#71717a;font-weight:700}
+  .card h3{margin:6px 0 4px;font-size:18px;letter-spacing:-.02em}
+  .price{font-weight:800;font-size:20px;color:#18181b;margin-bottom:12px}
+  .card button{margin-top:auto;width:100%;padding:12px;border:0;background:#18181b;color:#fff;border-radius:10px;font-weight:700;cursor:pointer;transition:background .2s}
+  .card button:hover{background:#27272a}
+  .drawer{position:fixed;top:0;right:0;width:340px;height:100vh;background:#fff;border-left:1px solid #e4e4e7;box-shadow:-10px 0 35px rgba(0,0,0,.15);padding:24px;display:none;flex-direction:column;z-index:50}
+  .drawer.open{display:flex}
+  .drawer-head{display:flex;justify-content:space-between;align-items:center;padding-bottom:16px;border-bottom:1px solid #e4e4e7;margin-bottom:16px}
+  /* INTENTIONAL TOUCH TARGET BUG: Close button is 26x26px */
+  .close{width:26px;height:26px;border:0;background:#f4f4f5;border-radius:50%;cursor:pointer;font-size:16px;display:flex;align-items:center;justify-content:center}
+  .cart-item-box{background:#f4f4f5;border-radius:12px;padding:14px;margin-bottom:16px}
+  .notice{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);opacity:0;background:#18181b;color:#fff;padding:12px 20px;border-radius:10px;font-weight:600;transition:all .25s;z-index:60;box-shadow:0 10px 25px rgba(0,0,0,.2)}
+  .notice.show{transform:translateX(-50%) translateY(0);opacity:1}
+  /* INTENTIONAL OCCLUSION MODAL: Appears after 3.8 seconds */
+  .modal{position:fixed;inset:0;background:rgba(0,0,0,.45);backdrop-filter:blur(3px);display:none;align-items:center;justify-content:center;z-index:40}
+  .modal.show{display:flex}
+  .modal-box{background:#fff;max-width:440px;border-radius:20px;padding:28px;box-shadow:0 25px 60px rgba(0,0,0,.25);position:relative}
+  .close-modal{position:absolute;top:18px;right:18px;width:28px;height:28px;border:0;background:#f4f4f5;border-radius:50%;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center}
+  .modal-box h2{font-size:28px;letter-spacing:-.04em;line-height:1.1;margin:10px 0 8px}
+  .modal-box p{color:#71717a;margin-bottom:20px;line-height:1.5}
+  .modal-box button.cta{width:100%;border:0;background:#18181b;color:#fff;padding:13px;border-radius:10px;font-weight:700;cursor:pointer}
+  .foot{margin-top:60px;border-top:1px solid #e4e4e7;padding-top:20px;color:#a1a1aa;font-size:12px;display:flex;justify-content:space-between}
+  @media(max-width:800px){.hero{grid-template-columns:1fr}.grid{grid-template-columns:1fr 1fr}.links{display:none}}
+</style>
+</head>
+<body>
+<header class="nav">
+  <div class="logo">STRIDE <span class="logo-badge">STORE DEMO</span></div>
+  <nav class="links">
+    <a href="#shop">Shoes</a>
+    <a href="#running">Running</a>
+    <a href="#sale">Sale</a>
+  </nav>
+  <button class="cart" id="cartBtn"><span class="cart-count" id="cartCount">1</span></button>
+</header>
+
+<main class="wrap" id="shop">
+  <section class="hero">
+    <div>
+      <div class="tag">Autonomous Target App · Black Box</div>
+      <h1>Run with pure intent.</h1>
+      <p>A realistic storefront built for TRACE//QA with intentional friction traps, modal popups, and accessibility defects.</p>
+      <div class="search-box">
+        <input id="searchInput" placeholder="Search running shoes (e.g. blue runner)" aria-label="Search footwear products">
+        <button id="searchBtn">Search</button>
+      </div>
+    </div>
+    <div class="goal-card">
+      <div class="tag">Autonomous Goal Challenge</div>
+      <p>“Find a blue running shoe under $100 and add it to the cart.”</p>
+    </div>
+  </section>
+
+  <div class="filters">
+    <span class="filters-label">Filters:</span>
+    <button id="blueFilter">Blue</button>
+    <button id="underFilter">Under $100</button>
+    <button id="allFilter">Show All</button>
+  </div>
+
+  <section class="grid" id="products"></section>
+  <div class="foot">
+    <span>TRACE//QA Autonomous Testbed</span>
+    <span>Black-Box Interaction Target</span>
+  </div>
+</main>
+
+<div class="drawer" id="drawer">
+  <div class="drawer-head">
+    <h3 style="margin:0;font-size:18px;">Your Cart</h3>
+    <button class="close" id="closeCart">×</button>
+  </div>
+  <div id="cartContent" class="cart-item-box">Your cart is currently empty.</div>
+  <button id="checkoutBtn" style="width:100%;padding:12px;background:#18181b;color:#fff;border:0;border-radius:10px;font-weight:700;cursor:pointer;margin-top:auto;">Proceed to Checkout</button>
+</div>
+
+<div class="notice" id="notice"></div>
+
+<div class="modal" id="modal">
+  <div class="modal-box">
+    <button class="close-modal" id="closeModal">×</button>
+    <div class="tag">Exclusive VIP Offer</div>
+    <h2>15% off your next 10K.</h2>
+    <p>Join the Stride Running Club today. This promotional dialog simulates an unexpected modal overlay.</p>
+    <button class="cta" id="acceptOffer">Continue Shopping</button>
+  </div>
+</div>
+
+<script>
+const catalog = [
+  {id:'p1', name:'Aero Blue Runner', price:89, color:'Blue', category:'Running', emoji:'👟'},
+  {id:'p2', name:'Volt Speed Pace', price:119, color:'Yellow', category:'Running', emoji:'⚡'},
+  {id:'p3', name:'Cloud Grey Daily', price:79, color:'Grey', category:'Running', emoji:'☁️'},
+  {id:'p4', name:'Trail Moss Pro', price:96, color:'Green', category:'Trail', emoji:'🌲'},
+  {id:'p5', name:'Night Marathon', price:139, color:'Black', category:'Running', emoji:'🌙'},
+  {id:'p6', name:'Harbor Blue Casual', price:94, color:'Blue', category:'Lifestyle', emoji:'🌊'}
+];
+
+let state = { items: catalog.slice(), cart: null };
+const root = document.getElementById('products');
+const notice = document.getElementById('notice');
+const drawer = document.getElementById('drawer');
+const cartContent = document.getElementById('cartContent');
+const cartCount = document.getElementById('cartCount');
+
+function render() {
+  if (!state.items.length) {
+    root.innerHTML = '<div style="grid-column:1/-1;padding:40px;text-align:center;color:#71717a;">No shoes match your criteria.</div>';
+    return;
+  }
+  root.innerHTML = state.items.map((p, i) => `
+    <article class="card" id="${p.id}">
+      <div class="visual">${p.emoji}</div>
+      <div class="card-body">
+        <div class="tag">${p.category} · ${p.color}</div>
+        <h3>${p.name}</h3>
+        <div class="price">$${p.price}</div>
+        <button class="add-btn" data-id="${p.id}" data-index="${i}">Add to cart</button>
+      </div>
+    </article>
+  `).join('');
+}
+
+function showToast(msg) {
+  notice.textContent = msg;
+  notice.classList.add('show');
+  setTimeout(() => notice.classList.remove('show'), 1600);
+}
+
+root.addEventListener('click', (e) => {
+  const btn = e.target.closest('.add-btn');
+  if (!btn) return;
+  const idx = Number(btn.dataset.index);
+  state.cart = state.items[idx];
+  cartContent.innerHTML = `<b>${state.cart.name}</b><br><span style="color:#71717a;">${state.cart.category} · ${state.cart.color}</span><br><b>$${state.cart.price}</b>`;
+  cartCount.style.display = 'flex';
+  drawer.classList.add('open');
+  showToast('✓ ' + state.cart.name + ' added to cart!');
+});
+
+document.getElementById('cartBtn').onclick = () => drawer.classList.toggle('open');
+document.getElementById('closeCart').onclick = () => drawer.classList.remove('open');
+document.getElementById('closeModal').onclick = () => document.getElementById('modal').classList.remove('show');
+document.getElementById('acceptOffer').onclick = () => document.getElementById('modal').classList.remove('show');
+
+document.getElementById('blueFilter').onclick = function() {
+  this.classList.toggle('active');
+  state.items = catalog.filter(p => p.color === 'Blue');
+  render();
+};
+document.getElementById('underFilter').onclick = function() {
+  this.classList.toggle('active');
+  state.items = catalog.filter(p => p.price < 100);
+  render();
+};
+document.getElementById('allFilter').onclick = function() {
+  document.getElementById('blueFilter').classList.remove('active');
+  document.getElementById('underFilter').classList.remove('active');
+  state.items = catalog.slice();
+  render();
+};
+
+function executeSearch() {
+  const q = document.getElementById('searchInput').value.trim().toLowerCase();
+  if (!q) { state.items = catalog.slice(); }
+  else {
+    state.items = catalog.filter(p => (p.name + ' ' + p.color + ' ' + p.category).toLowerCase().includes(q));
+  }
+  render();
+}
+document.getElementById('searchBtn').onclick = executeSearch;
+document.getElementById('searchInput').addEventListener('keydown', (e) => { if (e.key === 'Enter') executeSearch(); });
+
+render();
+// Intentional modal obstruction triggers after 3.8 seconds
+setTimeout(() => { document.getElementById('modal').classList.add('show'); }, 3800);
+</script>
+</body>
+</html>
