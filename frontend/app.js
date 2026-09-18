@@ -1,36 +1,123 @@
+/* ==========================================================================
+   TRACE//QA — Professional AI Quality Engineering Client Controller
+   Real-Time Event Streaming, Observability Viewport, Journey Graph & Telemetry
+   ========================================================================== */
+
 let activeRun = null;
 let poller = null;
+let currentFilter = 'all';
+let currentRunData = null;
+let currentEvents = [];
 
 const $ = (id) => document.getElementById(id);
 
-function focusSection(id) {
-  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+// --------------------------------------------------------------------------
+// Navigation & View Routing
+// --------------------------------------------------------------------------
+
+function switchView(viewName) {
+  const views = ['command-deck', 'trajectory', 'journey', 'findings', 'reports', 'ai-engine', 'settings'];
+  const titles = {
+    'command-deck': 'Command Deck',
+    'trajectory': 'Live Trajectory & Observability',
+    'journey': 'Journey Explorer',
+    'findings': 'Audit Findings Matrix',
+    'reports': 'Executive Reports',
+    'ai-engine': 'AI Provider Architecture',
+    'settings': 'Settings & Targets',
+  };
+
+  views.forEach(v => {
+    const el = $(`view-${v}`);
+    const nav = $(`nav-${v}`);
+    if (el) el.classList.toggle('active', v === viewName);
+    if (nav) nav.classList.toggle('active', v === viewName);
+  });
+
+  const titleEl = $('topbarViewTitle');
+  if (titleEl) titleEl.textContent = titles[viewName] || 'Command Deck';
+
+  window.location.hash = viewName;
 }
+
+// Handle browser back/forward or direct hash links
+window.addEventListener('DOMContentLoaded', () => {
+  const hash = window.location.hash.replace('#', '');
+  if (hash && $(`view-${hash}`)) {
+    switchView(hash);
+  } else {
+    switchView('command-deck');
+  }
+  fetchProviderHealth();
+  setupGlobalShortcuts();
+});
+
+// --------------------------------------------------------------------------
+// Preset Scenarios
+// --------------------------------------------------------------------------
 
 function applyPreset(num) {
   if (num === 1) {
     $('goal').value = "Find a blue running shoe under $100 and add it to the cart.";
     $('maxSteps').value = 16;
     $('passes').value = 1;
+    showToast("Loaded Preset 1: Blue shoe under $100 (Core Benchmark)", "accent");
   } else if (num === 2) {
     $('goal').value = "Discover alternative paths to find and cart a blue running shoe (compare category filters vs search bar).";
     $('maxSteps').value = 18;
     $('passes').value = 2;
+    showToast("Loaded Preset 2: Multi-Path Exploration (Passes: 2)", "accent");
   } else if (num === 3) {
     $('goal').value = "Browse running shoes, dismiss the promotional VIP modal overlay when it appears, and add the Aero Blue Runner to cart.";
     $('maxSteps').value = 16;
     $('passes').value = 1;
+    showToast("Loaded Preset 3: Modal Obstruction Recovery", "accent");
   }
+
+  switchView('command-deck');
+  const textarea = $('goal');
+  textarea.focus();
+  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
+}
+
+function clearGoalInput() {
+  $('goal').value = '';
   $('goal').focus();
 }
 
-function setStatus(status) {
-  const el = $('runStatus');
-  el.className = 'run-status ' + status;
-  el.textContent = status.toUpperCase();
+// --------------------------------------------------------------------------
+// Global Keyboard Shortcuts
+// --------------------------------------------------------------------------
+
+function setupGlobalShortcuts() {
+  document.addEventListener('keydown', (e) => {
+    // Focus goal on '/' if not typing in an input
+    if (e.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) {
+      e.preventDefault();
+      switchView('command-deck');
+      $('goal')?.focus();
+    }
+
+    // Submit on Cmd+Enter / Ctrl+Enter
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      $('runBtn')?.click();
+    }
+
+    // Escape closes modals
+    if (e.key === 'Escape') {
+      closeEvidenceModal();
+      if (document.activeElement === $('goal')) {
+        $('goal').blur();
+      }
+    }
+  });
 }
 
-/* AI Provider Mode Switching */
+// --------------------------------------------------------------------------
+// AI Provider Mode Switching & Diagnostics
+// --------------------------------------------------------------------------
+
 async function switchProviderMode(mode) {
   try {
     const res = await fetch('/api/providers/select', {
@@ -41,28 +128,36 @@ async function switchProviderMode(mode) {
     const data = await res.json();
     if (data.ok) {
       updateModeUI(data.mode);
+      showToast(`AI Engine switched to ${data.mode} mode`, 'info');
     }
   } catch (err) {
     console.error("Failed to switch mode:", err);
+    showToast("Error switching provider mode", "error");
   }
 }
 
 function updateModeUI(mode) {
   const upper = (mode || 'AUTO').toUpperCase();
-  $('btnModeAuto').classList.toggle('active', upper === 'AUTO');
-  $('btnModeGroq').classList.toggle('active', upper === 'GROQ');
-  $('btnModeGemini').classList.toggle('active', upper === 'GEMINI');
-  $('activeModeBadge').textContent = `AI ENGINE: ${upper}`;
-  $('sidebarEngineStatus').textContent = `${upper} · Multi-Provider Active`;
+  $('btnModeAuto')?.classList.toggle('active', upper === 'AUTO');
+  $('btnModeGroq')?.classList.toggle('active', upper === 'GROQ');
+  $('btnModeGemini')?.classList.toggle('active', upper === 'GEMINI');
+
+  const badge = $('activeModeBadge');
+  if (badge) badge.textContent = `AI ENGINE: ${upper}`;
+
+  const sideTag = $('sidebarModeTag');
+  if (sideTag) sideTag.textContent = upper;
+
+  const sideStatus = $('sidebarEngineStatus');
+  if (sideStatus) sideStatus.textContent = `${upper} · Multi-Provider Active`;
 }
 
-/* AI Provider Diagnostic Test */
 async function testAIProviders() {
   const btn = $('btnTestProviders');
   const feedback = $('diagFeedback');
   btn.disabled = true;
-  btn.innerHTML = '<span>⚡ Testing...</span>';
-  feedback.textContent = 'Probing Groq and Google Gemini endpoints...';
+  btn.innerHTML = '<span>⚡ Probing...</span>';
+  feedback.textContent = 'Measuring latency to Groq and Google Gemini endpoints...';
 
   try {
     const res = await fetch('/api/providers/test', { method: 'POST' });
@@ -70,20 +165,21 @@ async function testAIProviders() {
     const groq = data.results?.groq;
     const gemini = data.results?.gemini;
 
-    const groqMsg = groq?.connected ? `Groq ✓ Connected (${groq.latency_ms}ms)` : `Groq ✗ Failed`;
-    const geminiMsg = gemini?.connected ? `Gemini ✓ Connected (${gemini.latency_ms}ms)` : `Gemini ✗ Failed`;
+    const groqMsg = groq?.connected ? `Groq: Connected (${groq.latency_ms}ms)` : `Groq: Failed`;
+    const geminiMsg = gemini?.connected ? `Gemini: Connected (${gemini.latency_ms}ms)` : `Gemini: Failed`;
 
-    feedback.innerHTML = `<b>${groqMsg}</b> &nbsp;|&nbsp; <b>${geminiMsg}</b>`;
+    feedback.innerHTML = `<b>${escapeHtml(groqMsg)}</b> &nbsp;|&nbsp; <b>${escapeHtml(geminiMsg)}</b>`;
     fetchProviderHealth();
+    showToast("Provider diagnostic ping complete", "success");
   } catch (err) {
     feedback.textContent = `Diagnostic error: ${err.message}`;
+    showToast("Diagnostic probe failed", "error");
   } finally {
     btn.disabled = false;
     btn.innerHTML = '<span>⚡ Test AI Providers</span>';
   }
 }
 
-/* Fetch & Display Provider Health Telemetry */
 async function fetchProviderHealth() {
   try {
     const res = await fetch('/api/providers');
@@ -92,48 +188,54 @@ async function fetchProviderHealth() {
 
     const groq = data.providers?.groq;
     if (groq) {
-      $('groqStatus').textContent = groq.status.charAt(0).toUpperCase() + groq.status.slice(1);
-      $('groqDot').className = `health-dot ${groq.status}`;
-      $('groqLatency').textContent = groq.latency_ms > 0 ? `${groq.latency_ms}ms` : '—';
+      const statusText = groq.status.charAt(0).toUpperCase() + groq.status.slice(1);
+      if ($('groqStatus')) $('groqStatus').textContent = statusText;
+      if ($('groqDot')) $('groqDot').className = groq.status === 'healthy' ? 'dot-healthy' : 'dot-degraded';
+      if ($('groqLatency')) $('groqLatency').textContent = groq.latency_ms > 0 ? `${groq.latency_ms}ms` : '—';
     }
 
     const gemini = data.providers?.gemini;
     if (gemini) {
-      $('geminiStatus').textContent = gemini.status.charAt(0).toUpperCase() + gemini.status.slice(1);
-      $('geminiDot').className = `health-dot ${gemini.status}`;
-      $('geminiLatency').textContent = gemini.latency_ms > 0 ? `${gemini.latency_ms}ms` : '—';
+      const statusText = gemini.status.charAt(0).toUpperCase() + gemini.status.slice(1);
+      if ($('geminiStatus')) $('geminiStatus').textContent = statusText;
+      if ($('geminiDot')) $('geminiDot').className = gemini.status === 'healthy' ? 'dot-healthy' : 'dot-degraded';
+      if ($('geminiLatency')) $('geminiLatency').textContent = gemini.latency_ms > 0 ? `${gemini.latency_ms}ms` : '—';
     }
   } catch (err) {
     console.error("Failed to fetch provider health:", err);
   }
 }
 
-/* Render Trajectory Events */
+// --------------------------------------------------------------------------
+// Trajectory Events & Viewport Tracing
+// --------------------------------------------------------------------------
+
 function renderEvents(events) {
+  currentEvents = events;
   const root = $('trajectory');
   if (!events.length) {
-    root.innerHTML = '<div class="empty-state"><span class="empty-icon">◌</span><p>Waiting for agent perception...</p></div>';
+    root.innerHTML = '<div class="viewport-empty-placeholder"><span class="viewport-empty-icon">◌</span><p>Waiting for initial agent perception...</p></div>';
     return;
   }
 
-  root.innerHTML = events.slice(-75).map((e, idx) => {
-    const action = (e.data?.action || e.kind).toLowerCase();
+  root.innerHTML = events.slice(-80).map((e, idx) => {
+    const action = (e.data?.action || e.kind || '').toLowerCase();
     const rationale = e.data?.rationale || '';
     const stepNum = e.data?.step || (idx + 1);
     const element = e.data?.element_id ? `Target: ${escapeHtml(e.data.element_id)}` : '';
     const provider = e.data?.provider ? String(e.data.provider).toLowerCase() : '';
 
     return `
-      <div class="trajectory-item" onclick="previewStepScreenshot(${stepNum})">
-        <div class="step-circle">${String(stepNum).padStart(2, '0')}</div>
-        <div class="step-details">
-          <div class="step-top">
-            <span class="action-pill ${action}">${escapeHtml(action)}</span>
-            ${provider ? `<span class="prov-badge ${provider}">${escapeHtml(provider.toUpperCase())}</span>` : ''}
-            <span class="meta-val" style="font-size:10px;color:#71717a;">${element}</span>
+      <div class="trajectory-step-card" onclick="previewStepScreenshot(${stepNum})">
+        <div class="step-num-bubble font-mono">${String(stepNum).padStart(2, '0')}</div>
+        <div class="step-content-col">
+          <div class="step-meta-row">
+            <span class="action-pill ${escapeHtml(action)}">${escapeHtml(action)}</span>
+            ${provider ? `<span class="prov-badge ${escapeHtml(provider)}">${escapeHtml(provider.toUpperCase())}</span>` : ''}
+            ${element ? `<span class="step-target-label font-mono">${element}</span>` : ''}
           </div>
-          <div class="step-message">${escapeHtml(e.message)}</div>
-          ${rationale ? `<div class="step-rationale">“${escapeHtml(rationale)}”</div>` : ''}
+          <div class="step-message-text">${escapeHtml(e.message)}</div>
+          ${rationale ? `<div class="step-rationale-quote">“${escapeHtml(rationale)}”</div>` : ''}
         </div>
       </div>
     `;
@@ -148,104 +250,222 @@ function previewStepScreenshot(stepNum) {
   const imgUrl = `/artifacts/${activeRun}/step_${pad}.png?t=${Date.now()}`;
   const img = $('screenImage');
   img.src = imgUrl;
-  img.classList.remove('hidden');
-  $('screenEmpty').classList.add('hidden');
+  img.style.display = 'block';
+  $('screenEmpty').style.display = 'none';
   $('screenCaption').textContent = `Previewing Step ${stepNum} (Action Overlay Active)`;
+
+  // Find corresponding event for overlay
+  const ev = currentEvents.find(e => e.data?.step === stepNum);
+  if (ev) {
+    $('viewportOverlay').style.display = 'flex';
+    $('overlayStep').textContent = `STEP ${String(stepNum).padStart(2, '0')}`;
+    $('overlayAction').textContent = (ev.data?.action || ev.kind || 'OBSERVE').toUpperCase();
+    $('overlayConfidence').textContent = ev.data?.confidence ? `${(Number(ev.data.confidence) * 100).toFixed(0)}% Conf` : '95% Conf';
+  }
 }
 
-function renderIssues(issues) {
-  $('issueCount').textContent = `${issues.length} ISSUES`;
-  const root = $('findingsList');
-  if (!issues.length) {
-    root.innerHTML = '<div class="muted-empty">No issues detected yet. Interface demonstrated zero friction!</div>';
+// --------------------------------------------------------------------------
+// Interactive Journey Graph Renderer
+// --------------------------------------------------------------------------
+
+function renderJourney(journey) {
+  const container = $('journeyGraphContainer');
+  const nodes = journey?.nodes || [];
+  const edges = journey?.edges || [];
+
+  $('uniqueStatesCount').textContent = nodes.length;
+  $('loopsCount').textContent = nodes.filter(n => n.is_loop).length;
+
+  if (!nodes.length) {
+    container.innerHTML = `
+      <div class="viewport-empty-placeholder">
+        <span class="viewport-empty-icon">☊</span>
+        <p>No journey data mapped yet. Execute a run to generate state transitions.</p>
+      </div>
+    `;
     return;
   }
 
-  root.innerHTML = issues.map(i => `
-    <div class="finding-card">
-      <div class="finding-top">
-        <span class="sev-badge ${i.severity}">${escapeHtml(i.severity.toUpperCase())}</span>
-        <span class="f-cat">${escapeHtml(i.category.toUpperCase())}</span>
+  let html = '<div class="journey-nodes-tree">';
+  nodes.forEach((node, idx) => {
+    const isStart = idx === 0;
+    const isGoal = node.is_goal;
+    const isLoop = node.is_loop;
+    const stateClass = isGoal ? 'is-goal' : (isStart ? 'is-start' : (isLoop ? 'is-loop' : ''));
+
+    html += `
+      <div class="journey-node-box ${stateClass}" onclick="previewStepScreenshot(${node.step})">
+        <div class="node-step-tag">STEP ${String(node.step).padStart(2, '0')} ${isGoal ? '★ GOAL' : (isLoop ? '⟲ LOOP' : '')}</div>
+        <div class="node-label">${escapeHtml(node.label || 'State View')}</div>
+        <div class="node-url font-mono">${escapeHtml(node.url || '')}</div>
       </div>
-      <div class="f-title">${escapeHtml(i.title)}</div>
-      <div class="f-desc">${escapeHtml(i.description)}</div>
-      ${i.recommendation ? `<div class="f-rec"><b>Fix:</b> ${escapeHtml(i.recommendation)}</div>` : ''}
-    </div>
-  `).join('');
+    `;
+
+    if (idx < nodes.length - 1) {
+      const edge = edges.find(e => e.source === node.id) || edges[idx];
+      const edgeLabel = edge?.action || 'nav';
+      html += `
+        <div class="journey-edge-arrow">
+          <span>───</span>
+          <span class="action-pill click" style="font-size:8px;padding:1px 4px;">${escapeHtml(edgeLabel)}</span>
+          <span>──➔</span>
+        </div>
+      `;
+    }
+  });
+  html += '</div>';
+
+  container.innerHTML = html;
 }
 
-async function refresh() {
-  if (!activeRun) return;
-  try {
-    const run = await fetch(`/api/runs/${activeRun}`).then(r => r.json());
-    $('runId').textContent = run.id;
-    $('goalMeta').textContent = run.goal;
-    $('stepMeta').textContent = run.step_count;
-    $('screenUrl').textContent = run.target_url;
-    setStatus(run.status === 'completed' ? 'done' : run.status);
+// --------------------------------------------------------------------------
+// Findings Matrix & Filtering
+// --------------------------------------------------------------------------
 
-    if (run.latest_screenshot) {
-      const img = $('screenImage');
-      img.src = run.latest_screenshot + '?t=' + Date.now();
-      img.classList.remove('hidden');
-      $('screenEmpty').classList.add('hidden');
-      $('screenCaption').textContent = `Latest visual observation · Step ${run.step_count}`;
-    }
+function setFindingFilter(category, btn) {
+  currentFilter = category;
+  document.querySelectorAll('.filter-pill').forEach(b => b.classList.remove('active'));
+  if (btn) btn.classList.add('active');
+  filterFindings();
+}
 
-    // Metrics
-    if (run.metrics) {
-      const friction = run.metrics.friction_score ?? '—';
-      $('frictionMetric').textContent = friction !== '—' ? `${friction}/100` : '—';
-      $('wcagMetric').textContent = run.metrics.wcag_grade || '—';
-      $('pathsMetric').textContent = run.metrics.paths ?? (run.paths_discovered || 1);
-    }
-    $('goalMetric').textContent = run.status === 'completed' ? (run.goal_completed ? 'COMPLETE ✓' : 'PARTIAL') : 'IN PROGRESS';
+function filterFindings() {
+  const issues = currentRunData?.issues || [];
+  const query = ($('findingsSearch')?.value || '').toLowerCase().trim();
 
-    renderIssues(run.issues || []);
+  // Update count pills
+  $('countAll').textContent = issues.length;
+  $('countA11y').textContent = issues.filter(i => i.category === 'accessibility').length;
+  $('countUx').textContent = issues.filter(i => i.category === 'ux').length;
+  $('countNav').textContent = issues.filter(i => i.category === 'navigation').length;
+  $('countVisual').textContent = issues.filter(i => i.category === 'visual').length;
 
-    if (run.report_url) {
-      $('reportLink').href = run.report_url;
-      $('reportLink').classList.remove('hidden');
-    }
+  const filtered = issues.filter(i => {
+    const matchCategory = currentFilter === 'all' || i.category === currentFilter;
+    const matchQuery = !query || 
+      i.title.toLowerCase().includes(query) || 
+      i.description.toLowerCase().includes(query) || 
+      (i.evidence && i.evidence.toLowerCase().includes(query));
+    return matchCategory && matchQuery;
+  });
 
-    const eventsData = await fetch(`/api/runs/${activeRun}/events`).then(r => r.json());
-    const evs = eventsData.events || [];
-    renderEvents(evs);
-
-    const lastAgent = [...evs].reverse().find(e => e.kind === 'agent');
-    if (lastAgent && lastAgent.data?.confidence) {
-      $('confMeta').textContent = `${(Number(lastAgent.data.confidence) * 100).toFixed(0)}%`;
-    }
-
-    if (run.status === 'failed') {
-      $('runError').textContent = run.error || 'Run encountered a failure.';
-      $('runError').classList.remove('hidden');
-    }
-
-    if (run.status === 'completed' || run.status === 'failed') {
-      $('runBtn').disabled = false;
-      $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span class="btn-arrow">➔</span>';
-      if (poller) {
-        clearInterval(poller);
-        poller = null;
-      }
-      fetchProviderHealth();
-    }
-  } catch (err) {
-    console.error("Refresh error:", err);
+  const root = $('findingsList');
+  if (!filtered.length) {
+    root.innerHTML = `
+      <div class="viewport-empty-placeholder" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+        <span class="viewport-empty-icon">✓</span>
+        <p>No findings matching current filters. Target interface demonstrated zero friction.</p>
+      </div>
+    `;
+    return;
   }
+
+  root.innerHTML = filtered.map(i => {
+    const sev = (i.severity || 'medium').toLowerCase();
+    const cat = (i.category || 'general').toUpperCase();
+
+    return `
+      <div class="finding-card">
+        <div class="finding-top-row">
+          <div class="finding-badge-group">
+            <span class="sev-badge ${escapeHtml(sev)}">${escapeHtml(sev.toUpperCase())}</span>
+            <span class="category-tag">${escapeHtml(cat)}</span>
+            ${i.step ? `<span class="badge-mono" style="font-size:10px;color:var(--text-muted);">STEP ${i.step}</span>` : ''}
+          </div>
+          <button class="btn-ghost-sm" onclick="inspectFindingEvidence('${escapeHtml(i.id)}')">Inspect Evidence ⛶</button>
+        </div>
+
+        <div class="finding-title">${escapeHtml(i.title)}</div>
+        <div class="finding-desc">${escapeHtml(i.description)}</div>
+
+        ${i.evidence ? `
+          <div class="finding-evidence-box">
+            <span class="evidence-tag">Evidence:</span>
+            <code class="font-mono">${escapeHtml(i.evidence)}</code>
+          </div>
+        ` : ''}
+
+        ${i.recommendation ? `
+          <div class="finding-remediation-box">
+            <span class="remediation-lead">Code Remediation:</span>
+            <span>${escapeHtml(i.recommendation)}</span>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }).join('');
 }
+
+function inspectFindingEvidence(findingId) {
+  const finding = (currentRunData?.issues || []).find(f => f.id === findingId);
+  if (!finding) return;
+
+  const screenshotUrl = finding.screenshot || currentRunData?.latest_screenshot;
+  openEvidenceModal(
+    screenshotUrl,
+    finding.title,
+    finding.description,
+    finding.recommendation,
+    finding.category.toUpperCase()
+  );
+}
+
+// --------------------------------------------------------------------------
+// Evidence Inspector Modal
+// --------------------------------------------------------------------------
+
+function openEvidenceModal(imgSrc, title, desc, rec, category) {
+  const modal = $('evidenceModal');
+  const img = $('modalImg');
+  const titleEl = $('modalTitle');
+  const descEl = $('modalDesc');
+  const recEl = $('modalRec');
+  const catEl = $('modalCategory');
+
+  img.src = imgSrc || $('screenImage').src || '';
+  titleEl.textContent = title || 'Visual Viewport Trace';
+  descEl.textContent = desc || 'Autonomous visual observation captured during execution.';
+  catEl.textContent = category || 'VISUAL ACTION TRACE';
+
+  if (rec) {
+    recEl.style.display = 'block';
+    recEl.innerHTML = `<b>Developer Remediation:</b> ${escapeHtml(rec)}`;
+  } else {
+    recEl.style.display = 'none';
+  }
+
+  modal.classList.add('open');
+}
+
+function closeEvidenceModal() {
+  $('evidenceModal')?.classList.remove('open');
+}
+
+// --------------------------------------------------------------------------
+// Autonomous Run Execution & State Polling
+// --------------------------------------------------------------------------
 
 $('runBtn').addEventListener('click', async () => {
-  $('runError').classList.add('hidden');
-  $('reportLink').classList.add('hidden');
+  const goalText = $('goal').value.trim();
+  if (!goalText) {
+    showToast("Please enter a user goal first", "warning");
+    $('goal').focus();
+    return;
+  }
+
+  $('runError').style.display = 'none';
   $('runBtn').disabled = true;
-  $('runBtn').innerHTML = '<span class="btn-text">Agent Navigating…</span><span class="btn-arrow">◌</span>';
+  $('runBtn').innerHTML = '<span class="btn-text">Agent Navigating…</span><span>◌</span>';
+  $('cancelBtn').classList.add('visible');
+
+  // Clear previous viewport & feeds
+  $('trajectory').innerHTML = '';
+  $('screenImage').style.display = 'none';
+  $('screenEmpty').style.display = 'flex';
+  $('screenCaption').textContent = 'Launching Playwright browser session...';
+  $('viewportOverlay').style.display = 'none';
 
   try {
-    const goalText = $('goal').value.trim();
-    if (!goalText) throw new Error('Please enter a user goal first.');
-
     const body = {
       goal: goalText,
       target_url: $('target').value.trim() || "http://127.0.0.1:8000/demo/",
@@ -263,23 +483,198 @@ $('runBtn').addEventListener('click', async () => {
     if (!res.ok) throw new Error(run.detail || 'Failed to initialize run');
 
     activeRun = run.id;
+    currentRunData = run;
+
+    // Update telemetry header
     $('runId').textContent = run.id;
-    $('goalMeta').textContent = run.goal;
-    setStatus('running');
-    $('trajectory').innerHTML = '';
-    $('screenImage').classList.add('hidden');
-    $('screenEmpty').classList.remove('hidden');
-    $('screenCaption').textContent = 'Launching browser session...';
+    $('screenUrl').textContent = run.target_url;
+    setGlobalRunState('running', run.id);
+
+    // Auto-switch to Live Trajectory view so user watches agent in real-time
+    switchView('trajectory');
+    showToast(`Autonomous Run #${run.id} started`, "success");
 
     await refresh();
     poller = setInterval(refresh, 650);
   } catch (err) {
     $('runError').textContent = err.message;
-    $('runError').classList.remove('hidden');
+    $('runError').style.display = 'flex';
     $('runBtn').disabled = false;
-    $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span class="btn-arrow">➔</span>';
+    $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
+    $('cancelBtn').classList.remove('visible');
+    showToast(`Run error: ${err.message}`, "error");
   }
 });
+
+async function cancelActiveRun() {
+  if (!activeRun) return;
+  try {
+    await fetch(`/api/runs/${activeRun}/cancel`, { method: 'POST' });
+    showToast("Cancellation signal sent to agent", "warning");
+    $('cancelBtn').classList.remove('visible');
+  } catch (err) {
+    console.error("Cancel error:", err);
+  }
+}
+
+async function refresh() {
+  if (!activeRun) return;
+  try {
+    const run = await fetch(`/api/runs/${activeRun}`).then(r => r.json());
+    currentRunData = run;
+
+    // Header & Badge updates
+    $('runId').textContent = run.id;
+    $('stepMeta').textContent = run.step_count;
+    $('navStepBadge').textContent = run.step_count;
+    $('screenUrl').textContent = run.target_url;
+
+    // Viewport image
+    if (run.latest_screenshot) {
+      const img = $('screenImage');
+      img.src = run.latest_screenshot + '?t=' + Date.now();
+      img.style.display = 'block';
+      $('screenEmpty').style.display = 'none';
+      $('screenCaption').textContent = `Latest visual observation · Step ${run.step_count}`;
+    }
+
+    // Scorecards & Metrics
+    if (run.metrics) {
+      const friction = run.metrics.friction_score ?? '—';
+      $('frictionMetric').textContent = friction !== '—' ? `${friction}/100` : '—';
+      $('wcagMetric').textContent = run.metrics.wcag_grade || '—';
+      $('pathsMetric').textContent = run.metrics.paths ?? (run.paths_discovered || 1);
+      $('pathsMetricJourney').textContent = run.metrics.paths ?? (run.paths_discovered || 1);
+    }
+
+    const isComplete = run.status === 'completed';
+    const isFailed = run.status === 'failed';
+
+    $('goalMetric').textContent = isComplete ? (run.goal_completed ? 'COMPLETE ★' : 'PARTIAL') : (isFailed ? 'FAILED' : 'IN PROGRESS');
+    $('goalMetricSub').textContent = isComplete ? 'All verification criteria met' : 'Agent executing steps';
+    $('goalMetaStatus').textContent = isComplete ? (run.goal_completed ? 'COMPLETED' : 'PARTIAL') : run.status.toUpperCase();
+
+    // Report Links
+    if (run.report_url) {
+      $('reportLink').href = run.report_url;
+      $('reportLink').style.display = 'inline-flex';
+      $('downloadJsonBtn').href = `/api/runs/${activeRun}/report.json`;
+      $('downloadJsonBtn').style.display = 'inline-flex';
+    }
+
+    // Reports View Header
+    $('reportGoalTitle').textContent = run.goal;
+    $('reportMetaSubtitle').textContent = `Run ID: ${run.id} · Target: ${run.target_url}`;
+
+    // Render findings
+    const issues = run.issues || [];
+    $('navFindingsBadge').textContent = issues.length;
+    filterFindings();
+
+    // Render journey graph
+    renderJourney(run.journey);
+
+    // Fetch and render events
+    const eventsData = await fetch(`/api/runs/${activeRun}/events`).then(r => r.json());
+    const evs = eventsData.events || [];
+    renderEvents(evs);
+
+    // Last confidence
+    const lastAgent = [...evs].reverse().find(e => e.kind === 'agent');
+    if (lastAgent && lastAgent.data?.confidence) {
+      const confPct = `${(Number(lastAgent.data.confidence) * 100).toFixed(0)}%`;
+      $('confMeta').textContent = confPct;
+      $('overlayConfidence').textContent = `${confPct} Conf`;
+    }
+
+    if (lastAgent && lastAgent.data?.action) {
+      $('viewportOverlay').style.display = 'flex';
+      $('overlayStep').textContent = `STEP ${String(run.step_count).padStart(2, '0')}`;
+      $('overlayAction').textContent = lastAgent.data.action.toUpperCase();
+    }
+
+    // Run completion or failure
+    if (isComplete || isFailed) {
+      setGlobalRunState(run.status, run.id);
+      $('runBtn').disabled = false;
+      $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
+      $('cancelBtn').classList.remove('visible');
+
+      if (poller) {
+        clearInterval(poller);
+        poller = null;
+      }
+
+      showToast(isComplete ? `Audit #${run.id} Completed!` : `Audit #${run.id} halted: ${run.error || 'Failed'}`, isComplete ? 'success' : 'error');
+      fetchProviderHealth();
+    }
+  } catch (err) {
+    console.error("Refresh error:", err);
+  }
+}
+
+function setGlobalRunState(status, runId) {
+  const badge = $('topbarRunBadge');
+  const text = $('topbarRunText');
+  const trajStatus = $('runStatus');
+
+  badge.className = `global-status-badge ${status}`;
+  if (status === 'running') {
+    text.textContent = `RUNNING #${runId || ''}`;
+    trajStatus.className = 'global-status-badge running';
+    trajStatus.textContent = 'RUNNING';
+  } else if (status === 'completed') {
+    text.textContent = `COMPLETED #${runId || ''}`;
+    trajStatus.className = 'global-status-badge completed';
+    trajStatus.textContent = 'COMPLETED';
+  } else if (status === 'failed') {
+    text.textContent = `FAILED #${runId || ''}`;
+    trajStatus.className = 'global-status-badge failed';
+    trajStatus.textContent = 'FAILED';
+  } else {
+    text.textContent = 'IDLE';
+    trajStatus.className = 'global-status-badge';
+    trajStatus.textContent = 'IDLE';
+  }
+}
+
+// --------------------------------------------------------------------------
+// Toast Notification Engine
+// --------------------------------------------------------------------------
+
+function showToast(message, type = 'info', duration = 3200) {
+  const stack = $('toastStack');
+  if (!stack) return;
+
+  const toast = document.createElement('div');
+  toast.className = `toast-item ${type}`;
+
+  const iconMap = {
+    info: 'ℹ',
+    success: '✓',
+    warning: '⚠',
+    error: '✕',
+    accent: '✦',
+  };
+
+  toast.innerHTML = `
+    <span style="font-weight:700;">${iconMap[type] || '✦'}</span>
+    <span>${escapeHtml(message)}</span>
+  `;
+
+  stack.appendChild(toast);
+
+  setTimeout(() => {
+    toast.style.opacity = '0';
+    toast.style.transform = 'translateY(10px)';
+    toast.style.transition = 'all 0.25s ease';
+    setTimeout(() => toast.remove(), 260);
+  }, duration);
+}
+
+// --------------------------------------------------------------------------
+// Utility
+// --------------------------------------------------------------------------
 
 function escapeHtml(val) {
   return String(val ?? '')
@@ -289,6 +684,3 @@ function escapeHtml(val) {
     .replace(/'/g, '&#39;')
     .replace(/"/g, '&quot;');
 }
-
-// Initial fetch
-fetchProviderHealth();

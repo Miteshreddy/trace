@@ -3,331 +3,590 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TRACE//QA — Autonomous Black-Box UI/UX & Accessibility Agent</title>
+  <title>TRACE//QA — Autonomous Black-Box UI/UX & Accessibility QA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;600;700&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="/static/styles.css" />
 </head>
 <body>
   <div class="app-shell">
-    <!-- Left Navigation Sidebar -->
-    <aside class="sidebar">
+    <!-- Persistent Left Navigation Sidebar -->
+    <aside class="sidebar" id="appSidebar">
       <div class="brand">
         <span class="brand-mark"></span>
-        <div class="brand-text">TRACE<span class="slash">//</span>QA</div>
+        <div class="brand-title">TRACE<span class="brand-slash">//</span>QA</div>
+        <span class="brand-version">P8</span>
       </div>
-      <div class="sidebar-caption">Black-Box Autonomous QA</div>
 
-      <nav class="nav-menu">
-        <button class="nav-item active" onclick="focusSection('command-deck')">
-          <span class="nav-icon">✦</span><span>Command Deck</span>
+      <!-- Navigation Groups -->
+      <div class="nav-group">
+        <span class="nav-label">Workspace</span>
+        <button class="nav-item active" id="nav-command-deck" onclick="switchView('command-deck')">
+          <span class="nav-icon">✦</span>
+          <span>Command Deck</span>
         </button>
-        <button class="nav-item" onclick="focusSection('ai-engine')">
-          <span class="nav-icon">⚙</span><span>AI Engine</span>
+        <button class="nav-item" id="nav-trajectory" onclick="switchView('trajectory')">
+          <span class="nav-icon">⌘</span>
+          <span>Live Trajectory</span>
+          <span class="nav-badge" id="navStepBadge">0</span>
         </button>
-        <button class="nav-item" onclick="focusSection('runs')">
-          <span class="nav-icon">⌘</span><span>Live Trajectory</span>
+        <button class="nav-item" id="nav-journey" onclick="switchView('journey')">
+          <span class="nav-icon">☊</span>
+          <span>Journey Explorer</span>
         </button>
-        <button class="nav-item" onclick="focusSection('findings')">
-          <span class="nav-icon">◒</span><span>Audit Findings</span>
+        <button class="nav-item" id="nav-findings" onclick="switchView('findings')">
+          <span class="nav-icon">◒</span>
+          <span>Audit Findings</span>
+          <span class="nav-badge" id="navFindingsBadge">0</span>
         </button>
-      </nav>
+        <button class="nav-item" id="nav-reports" onclick="switchView('reports')">
+          <span class="nav-icon">▤</span>
+          <span>Executive Reports</span>
+        </button>
+      </div>
 
+      <div class="nav-group">
+        <span class="nav-label">System</span>
+        <button class="nav-item" id="nav-ai-engine" onclick="switchView('ai-engine')">
+          <span class="nav-icon">⚙</span>
+          <span>AI Engine</span>
+        </button>
+        <button class="nav-item" id="nav-settings" onclick="switchView('settings')">
+          <span class="nav-icon">⚑</span>
+          <span>Settings / Targets</span>
+        </button>
+      </div>
+
+      <!-- Sidebar Footer Telemetry Capsule -->
       <div class="sidebar-bottom">
-        <div class="status-box">
-          <div class="status-top">
-            <span class="pulse-dot"></span>
-            <span class="status-label">DUAL ENGINE ONLINE</span>
+        <div class="sidebar-engine-card" onclick="switchView('ai-engine')" style="cursor: pointer;">
+          <div class="sidebar-engine-header">
+            <div class="engine-status-pill">
+              <span class="status-pulse-dot"></span>
+              <span>AI ENGINE</span>
+            </div>
+            <span class="engine-mode-tag" id="sidebarModeTag">AUTO</span>
           </div>
-          <div class="status-sub" id="sidebarEngineStatus">AUTO · Groq & Gemini Active</div>
+          <div class="engine-details" id="sidebarEngineStatus">Groq & Gemini Dual Engine</div>
         </div>
-        <div class="version-tag">Hackathon Track: AI Agents & QA</div>
+        <div class="sidebar-footer-note">Autonomous Black-Box QA</div>
       </div>
     </aside>
 
-    <!-- Main Workspace Content -->
-    <main class="main">
-      <!-- Top Bar -->
+    <!-- Main Workspace -->
+    <main class="main-content">
+      <!-- Global Top Bar -->
       <header class="topbar">
-        <div>
-          <div class="eyebrow">Developer Tools / Autonomous Agentic QA</div>
-          <h1>Autonomous UI/UX & Accessibility Engine</h1>
-        </div>
-        <div class="top-actions">
-          <span id="activeModeBadge" class="badge badge-model">AI ENGINE: AUTO</span>
-          <a class="btn-ghost" href="/demo/" target="_blank">Open Target Store ↗</a>
-        </div>
-      </header>
-
-      <!-- AI Provider Control & Health Deck -->
-      <section class="panel ai-engine-panel" id="ai-engine">
-        <div class="panel-top">
-          <div>
-            <div class="eyebrow">Central AI Provider Architecture</div>
-            <div class="panel-title">Provider Orchestration, Intelligent Load Balancing & Failover</div>
-          </div>
-          <div class="mode-selector">
-            <span class="mode-label">PROVIDER MODE:</span>
-            <div class="mode-btn-group">
-              <button class="mode-btn active" id="btnModeAuto" onclick="switchProviderMode('AUTO')">AUTO</button>
-              <button class="mode-btn" id="btnModeGroq" onclick="switchProviderMode('GROQ')">GROQ</button>
-              <button class="mode-btn" id="btnModeGemini" onclick="switchProviderMode('GEMINI')">GEMINI</button>
-            </div>
-          </div>
+        <div class="topbar-breadcrumb">
+          <span>Workspace</span>
+          <span class="topbar-divider">/</span>
+          <span class="topbar-current-view" id="topbarViewTitle">Command Deck</span>
         </div>
 
-        <div class="ai-provider-grid">
-          <!-- Groq Card -->
-          <div class="provider-card" id="groqCard">
-            <div class="prov-top">
-              <div class="prov-brand">
-                <span class="prov-title">GROQ</span>
-                <span class="prov-chip">LPUs</span>
-              </div>
-              <span class="prov-model-name">qwen/qwen3.8-27b</span>
-            </div>
-            <div class="prov-metrics">
-              <div class="prov-status-row">
-                <span class="health-dot healthy" id="groqDot"></span>
-                <span class="health-text" id="groqStatus">Healthy</span>
-              </div>
-              <div class="prov-latency-row">
-                <span class="lat-label">Latency:</span>
-                <span class="lat-val" id="groqLatency">~1.1s</span>
-              </div>
-            </div>
+        <div class="topbar-actions">
+          <span class="global-status-badge" id="topbarRunBadge">
+            <span class="status-pulse-dot" style="background:#71717a;box-shadow:none;"></span>
+            <span id="topbarRunText">IDLE</span>
+          </span>
+          <span class="global-status-badge" id="activeModeBadge">AI ENGINE: AUTO</span>
+          <div class="kbd-shortcut-hint" title="Global Shortcut">
+            <span class="kbd-key">/</span>
+            <span>Focus Goal</span>
           </div>
-
-          <!-- Gemini Card -->
-          <div class="provider-card" id="geminiCard">
-            <div class="prov-top">
-              <div class="prov-brand">
-                <span class="prov-title">GOOGLE GEMINI</span>
-                <span class="prov-chip">TPUs</span>
-              </div>
-              <span class="prov-model-name">gemini-2.5-flash</span>
-            </div>
-            <div class="prov-metrics">
-              <div class="prov-status-row">
-                <span class="health-dot healthy" id="geminiDot"></span>
-                <span class="health-text" id="geminiStatus">Healthy</span>
-              </div>
-              <div class="prov-latency-row">
-                <span class="lat-label">Latency:</span>
-                <span class="lat-val" id="geminiLatency">~1.4s</span>
-              </div>
-            </div>
-          </div>
-
-          <!-- Diagnostic Test Card -->
-          <div class="provider-card diagnostic-card">
-            <div class="diag-top">
-              <span class="diag-title">Diagnostics</span>
-              <button class="btn-test-diag" id="btnTestProviders" onclick="testAIProviders()">
-                <span>⚡ Test AI Providers</span>
-              </button>
-            </div>
-            <div class="diag-feedback" id="diagFeedback">
-              Pings both providers with lightweight verification probes.
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Preset Scenarios Ribbon -->
-      <section class="presets-bar" id="presets">
-        <span class="preset-label">Preset Scenarios:</span>
-        <button class="preset-btn" onclick="applyPreset(1)">
-          <span class="p-icon">👟</span> 1. Blue shoe under $100 (Core Benchmark)
-        </button>
-        <button class="preset-btn" onclick="applyPreset(2)">
-          <span class="p-icon">⚡</span> 2. Multi-Path Discovery (Filter vs Search)
-        </button>
-        <button class="preset-btn" onclick="applyPreset(3)">
-          <span class="p-icon">🛡️</span> 3. Modal Obstruction Recovery
-        </button>
-      </section>
-
-      <!-- Command Deck & Perception Stack -->
-      <section class="hero-grid" id="command-deck">
-        <div class="panel command-panel">
-          <div class="panel-top">
-            <div>
-              <div class="eyebrow">Agent Intent</div>
-              <div class="panel-title">Define high-level user goal in natural language</div>
-            </div>
-            <span class="live-pill">● READY</span>
-          </div>
-
-          <textarea id="goal" placeholder="e.g. Find a blue running shoe under $100 and add it to the cart."></textarea>
-
-          <div class="form-row">
-            <div class="field-col field-target">
-              <label>Target Application URL</label>
-              <input id="target" value="http://127.0.0.1:8000/demo/" />
-            </div>
-            <div class="field-col">
-              <label>Max Steps</label>
-              <input id="maxSteps" type="number" min="4" max="40" value="18" />
-            </div>
-            <div class="field-col">
-              <label>Exploration Passes</label>
-              <input id="passes" type="number" min="1" max="3" value="1" title="Discover alternative routes to the same goal" />
-            </div>
-          </div>
-
-          <button id="runBtn" class="run-button">
-            <span class="btn-text">Run Autonomous Audit</span>
-            <span class="btn-arrow">➔</span>
-          </button>
-          <div id="runError" class="error-msg hidden"></div>
-        </div>
-
-        <div class="panel philosophy-panel">
-          <div class="eyebrow">Black-Box Perception Stack</div>
-          <div class="observes">
-            <div class="observe-card">
-              <div class="obs-num">01</div>
-              <div class="obs-content">
-                <b>Dual Multimodal Reasoning</b>
-                <span>Groq Qwen 3.8 27B & Google Gemini 2.5 Flash with AUTO failover</span>
-              </div>
-            </div>
-            <div class="observe-card">
-              <div class="obs-num">02</div>
-              <div class="obs-content">
-                <b>Action Safety Validation</b>
-                <span>Rigorous ActionValidator schema & boundary verification layer</span>
-              </div>
-            </div>
-            <div class="observe-card">
-              <div class="obs-num">03</div>
-              <div class="obs-content">
-                <b>WCAG 2.1 AA Heuristics</b>
-                <span>Automated color contrast, touch target size & ARIA name checks</span>
-              </div>
-            </div>
-            <div class="observe-card">
-              <div class="obs-num">04</div>
-              <div class="obs-content">
-                <b>Visual Action Tracing</b>
-                <span>Overlay target bounding boxes, coordinate bullseyes & step badges</span>
-              </div>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- Live Execution Deck: Trajectory + Viewport -->
-      <section class="workspace-grid">
-        <!-- Trajectory Feed -->
-        <div class="panel trajectory-panel" id="runs">
-          <div class="panel-top">
-            <div>
-              <div class="eyebrow">Real-Time Execution</div>
-              <div class="panel-title">Action Trajectory Feed</div>
-            </div>
-            <span id="runStatus" class="run-status idle">IDLE</span>
-          </div>
-
-          <div class="run-meta-bar">
-            <div><span class="meta-lbl">RUN ID</span><b id="runId">—</b></div>
-            <div><span class="meta-lbl">GOAL</span><b id="goalMeta">—</b></div>
-            <div><span class="meta-lbl">STEPS</span><b id="stepMeta">0</b></div>
-            <div><span class="meta-lbl">CONFIDENCE</span><b id="confMeta">—</b></div>
-          </div>
-
-          <div class="trajectory-feed" id="trajectory">
-            <div class="empty-state">
-              <span class="empty-icon">◌</span>
-              <p>Launch an autonomous run or select a preset scenario above to watch the agent perceive, navigate, and audit.</p>
-            </div>
-          </div>
-        </div>
-
-        <!-- Visual Viewport -->
-        <div class="panel screen-panel">
-          <div class="panel-top">
-            <div>
-              <div class="eyebrow">Visual Tracing</div>
-              <div class="panel-title">Agent Viewport & Action Overlay</div>
-            </div>
-            <span id="screenUrl" class="screen-url">http://127.0.0.1:8000/demo/</span>
-          </div>
-
-          <div class="screen-viewport">
-            <div class="screen-grid"></div>
-            <img id="screenImage" class="screen-image hidden" alt="Agent Viewport Observation" />
-            <div id="screenEmpty" class="viewport-placeholder">
-              <span>Waiting for initial browser observation...</span>
-            </div>
-          </div>
-
-          <div class="screen-footer">
-            <span id="screenCaption">Step observation waiting...</span>
-            <span class="overlay-indicator">Target Crosshair + Bounding Box Active</span>
-          </div>
-        </div>
-      </section>
-
-      <!-- Findings, Metrics & Report Section -->
-      <section class="bottom-grid" id="findings">
-        <!-- Findings Matrix -->
-        <div class="panel findings-panel">
-          <div class="panel-top">
-            <div>
-              <div class="eyebrow">Audited Defects & Traps</div>
-              <div class="panel-title">Accessibility & UX Friction Matrix</div>
-            </div>
-            <div class="filter-pills">
-              <span id="issueCount" class="count-pill">0 ISSUES</span>
-            </div>
-          </div>
-
-          <div id="findingsList" class="findings-list">
-            <div class="muted-empty">No findings detected yet. Start an audit run to analyze the target.</div>
-          </div>
-        </div>
-
-        <!-- Quality Metrics & Executive Summary Card -->
-        <div class="panel metrics-panel">
-          <div class="panel-top">
-            <div>
-              <div class="eyebrow">Scorecards</div>
-              <div class="panel-title">UX & A11y Metrics</div>
-            </div>
-          </div>
-
-          <div class="metric-row">
-            <span>UX Friction Index</span>
-            <b id="frictionMetric" class="metric-val">—</b>
-          </div>
-          <div class="metric-row">
-            <span>WCAG Compliance</span>
-            <b id="wcagMetric" class="metric-val">—</b>
-          </div>
-          <div class="metric-row">
-            <span>Paths Discovered</span>
-            <b id="pathsMetric" class="metric-val">—</b>
-          </div>
-          <div class="metric-row">
-            <span>Goal Status</span>
-            <b id="goalMetric" class="metric-val">—</b>
-          </div>
-
-          <a id="reportLink" class="report-cta hidden" target="_blank">
-            <span>View Full Executive Audit Report</span>
+          <a class="btn-ghost-sm" href="/demo/" target="_blank">
+            <span>Open Target Store</span>
             <span>↗</span>
           </a>
         </div>
+      </header>
+
+      <!-- VIEW 1: COMMAND DECK (Main Composer) -->
+      <section class="view-container active" id="view-command-deck">
+        <div class="command-deck-hero">
+          <div class="eyebrow-tag">
+            <span>✦</span>
+            <span>AUTONOMOUS QUALITY ENGINEERING</span>
+          </div>
+          <h1 class="hero-heading">Test any digital experience with an autonomous AI agent.</h1>
+          <p class="hero-subtitle">
+            Describe a user goal. TRACE//QA navigates the target application, evaluates visual layouts and accessibility heuristics, maps multi-path user journeys, and produces an evidence-backed audit.
+          </p>
+        </div>
+
+        <!-- Flagship Command Input Box -->
+        <div class="command-composer-card">
+          <div class="composer-top">
+            <div class="composer-label">
+              <span class="composer-sparkle">✦</span>
+              <span>Describe what a real user should accomplish...</span>
+            </div>
+            <div class="composer-controls">
+              <button class="btn-clear-goal" id="btnClearGoal" onclick="clearGoalInput()">Clear</button>
+            </div>
+          </div>
+
+          <textarea id="goal" class="composer-textarea" rows="3" placeholder="e.g. Find a blue running shoe under $100 and add it to the cart."></textarea>
+
+          <div class="composer-bottom">
+            <div class="composer-meta-hints">
+              <div class="composer-hint-item">
+                <span class="kbd-key">⌘</span><span class="kbd-key">Enter</span>
+                <span>to launch audit</span>
+              </div>
+              <div class="composer-hint-item">
+                <span class="kbd-key">Esc</span>
+                <span>to unfocus</span>
+              </div>
+            </div>
+            <div class="composer-actions">
+              <span id="goalCharCount" style="font-size:11px;color:var(--text-subtle);"></span>
+            </div>
+          </div>
+        </div>
+
+        <!-- Target Application & Secondary Controls Row -->
+        <div class="command-deck-controls-row">
+          <div class="control-field-card">
+            <div class="control-field-header">
+              <span class="control-label">Target Application URL</span>
+              <a class="control-link" href="/demo/" target="_blank">Open Target ↗</a>
+            </div>
+            <div class="control-input-wrapper">
+              <span class="target-dot"></span>
+              <input id="target" class="control-input" value="http://127.0.0.1:8000/demo/" placeholder="https://your-app.com" />
+            </div>
+          </div>
+
+          <div class="control-field-card">
+            <div class="control-field-header">
+              <span class="control-label">Max Steps</span>
+              <span style="font-size:10px;color:var(--text-muted);">4 - 40</span>
+            </div>
+            <div class="control-input-wrapper">
+              <input id="maxSteps" class="control-input" type="number" min="4" max="40" value="18" />
+            </div>
+          </div>
+
+          <div class="control-field-card">
+            <div class="control-field-header">
+              <span class="control-label">Exploration Passes</span>
+              <span style="font-size:10px;color:var(--text-muted);">Multi-Path</span>
+            </div>
+            <div class="control-input-wrapper">
+              <input id="passes" class="control-input" type="number" min="1" max="3" value="1" title="Discover alternative paths to the same goal" />
+            </div>
+          </div>
+        </div>
+
+        <!-- Preset Scenarios Ribbon -->
+        <div class="presets-section">
+          <div class="presets-header">
+            <span class="presets-title">Preset Evaluation Scenarios</span>
+            <span style="font-size:11px;color:var(--text-muted);">Click to load goal and configuration</span>
+          </div>
+          <div class="preset-cards-grid">
+            <div class="preset-card" onclick="applyPreset(1)">
+              <div class="preset-card-top">
+                <span class="preset-tag">Core Benchmark</span>
+                <span style="font-size:13px;">👟</span>
+              </div>
+              <div class="preset-card-title">1. Blue Running Shoe Under $100</div>
+              <div class="preset-card-desc">Evaluates product discovery, price constraint recognition, and cart addition journey.</div>
+            </div>
+
+            <div class="preset-card" onclick="applyPreset(2)">
+              <div class="preset-card-top">
+                <span class="preset-tag">Multi-Path</span>
+                <span style="font-size:13px;">⚡</span>
+              </div>
+              <div class="preset-card-title">2. Filter vs Search Exploration</div>
+              <div class="preset-card-desc">Explores alternative routes to the same goal comparing category filters with search inputs.</div>
+            </div>
+
+            <div class="preset-card" onclick="applyPreset(3)">
+              <div class="preset-card-top">
+                <span class="preset-tag">Obstruction Recovery</span>
+                <span style="font-size:13px;">🛡️</span>
+              </div>
+              <div class="preset-card-title">3. Promotional Modal Recovery</div>
+              <div class="preset-card-desc">Tests agent resilience when an unannounced VIP modal popup occludes the primary checkout journey.</div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Primary Run CTA & Actions -->
+        <div class="command-run-bar">
+          <button id="runBtn" class="btn-primary-run">
+            <span class="btn-text">Run Autonomous Audit</span>
+            <span>➔</span>
+          </button>
+          <button id="cancelBtn" class="btn-cancel-run" onclick="cancelActiveRun()">
+            <span>✕ Cancel Run</span>
+          </button>
+          <div id="runError" class="global-status-badge failed" style="display:none;"></div>
+        </div>
+
+        <!-- Black-Box Perception Stack -->
+        <div class="perception-pillars-grid">
+          <div class="pillar-card">
+            <span class="pillar-num">01 / DUAL AI REASONING</span>
+            <div class="pillar-title">Groq LPUs + Google Gemini TPUs</div>
+            <div class="pillar-desc">Multimodal perception and turn-by-turn agent planning with automatic fallback and load-balancing.</div>
+          </div>
+          <div class="pillar-card">
+            <span class="pillar-num">02 / ACTION SAFETY</span>
+            <div class="pillar-title">Strict Schema Validation</div>
+            <div class="pillar-desc">ActionValidator verifies candidate element existence, bounds-checks coordinates, and sanitizes text.</div>
+          </div>
+          <div class="pillar-card">
+            <span class="pillar-num">03 / ACCESSIBILITY</span>
+            <div class="pillar-title">WCAG 2.1 AA Compliance</div>
+            <div class="pillar-desc">Mathematical color contrast ratios, touch target size thresholds, and accessible ARIA name auditing.</div>
+          </div>
+          <div class="pillar-card">
+            <span class="pillar-num">04 / VISUAL TRACING</span>
+            <div class="pillar-title">Bullseye Action Overlays</div>
+            <div class="pillar-desc">Every step records viewport screenshots with neon target bounding boxes and coordinate crosshairs.</div>
+          </div>
+        </div>
       </section>
 
-      <!-- Footer -->
-      <footer class="footer">
-        <div>TRACE//QA · Dual-Provider (Groq + Google Gemini) Autonomous UI/UX & Accessibility Framework</div>
-        <div class="footer-sub">Zero Source Instrumentation · Multimodal Reasoning · Cross-Platform Visual Tracing</div>
-      </footer>
+      <!-- VIEW 2: LIVE TRAJECTORY & OBSERVABILITY CONSOLE -->
+      <section class="view-container" id="view-trajectory">
+        <div class="observability-split-layout">
+          <!-- Execution Timeline Feed -->
+          <div class="execution-panel">
+            <div class="panel-header-bar">
+              <div class="panel-header-title-group">
+                <span class="panel-eyebrow">Real-Time Trajectory</span>
+                <h2 class="panel-title">Action Execution Feed</h2>
+              </div>
+              <span id="runStatus" class="global-status-badge">IDLE</span>
+            </div>
+
+            <!-- Run Telemetry Metadata -->
+            <div class="run-telemetry-strip">
+              <div class="telemetry-cell">
+                <span class="cell-label">RUN ID</span>
+                <span class="cell-value font-mono" id="runId">—</span>
+              </div>
+              <div class="telemetry-cell">
+                <span class="cell-label">STEPS</span>
+                <span class="cell-value font-mono" id="stepMeta">0</span>
+              </div>
+              <div class="telemetry-cell">
+                <span class="cell-label">CONFIDENCE</span>
+                <span class="cell-value font-mono" id="confMeta">—</span>
+              </div>
+              <div class="telemetry-cell">
+                <span class="cell-label">GOAL STATUS</span>
+                <span class="cell-value" id="goalMetaStatus">IDLE</span>
+              </div>
+            </div>
+
+            <!-- Scrollable Step Feed -->
+            <div class="trajectory-scroll-feed" id="trajectory">
+              <div class="viewport-empty-placeholder">
+                <span class="viewport-empty-icon">◌</span>
+                <p>Launch an autonomous run from the Command Deck to stream real-time perception and actions.</p>
+              </div>
+            </div>
+          </div>
+
+          <!-- Browser Instrumentation Viewport -->
+          <div class="viewport-panel">
+            <div class="browser-chrome-header">
+              <div class="chrome-window-dots">
+                <span class="chrome-dot red"></span>
+                <span class="chrome-dot yellow"></span>
+                <span class="chrome-dot green"></span>
+              </div>
+              <div class="chrome-url-bar">
+                <span class="url-lock-icon">🔒</span>
+                <span class="font-mono" id="screenUrl">http://127.0.0.1:8000/demo/</span>
+              </div>
+              <button class="btn-ghost-sm" onclick="openEvidenceModal()" title="Inspect Fullscreen">⛶ Zoom</button>
+            </div>
+
+            <div class="viewport-media-area">
+              <img id="screenImage" class="viewport-img" style="display:none;" alt="Live Target Observation" />
+              <div id="screenEmpty" class="viewport-empty-placeholder">
+                <span class="viewport-empty-icon">🖥️</span>
+                <p>Waiting for agent browser session observation...</p>
+              </div>
+
+              <!-- Active Action Overlay -->
+              <div id="viewportOverlay" class="viewport-action-overlay" style="display:none;">
+                <div class="overlay-left">
+                  <span class="overlay-step-badge" id="overlayStep">STEP 01</span>
+                  <span class="overlay-action-desc" id="overlayAction">OBSERVING TARGET</span>
+                </div>
+                <span class="overlay-confidence font-mono" id="overlayConfidence">95% Conf</span>
+              </div>
+            </div>
+
+            <div class="viewport-footer-bar">
+              <span id="screenCaption">Step observation waiting...</span>
+              <div class="viewport-nav-btns">
+                <span class="overlay-indicator" style="color:var(--accent);font-weight:600;">● Target Bullseye Active</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 3: JOURNEY EXPLORER -->
+      <section class="view-container" id="view-journey">
+        <div class="journey-header-card">
+          <div>
+            <div class="eyebrow-tag">MULTI-PATH STATE GRAPH</div>
+            <h2 class="panel-title" style="font-size:20px;">Discovered Navigational Paths & Loops</h2>
+          </div>
+          <div class="journey-stats-row">
+            <div class="journey-stat-col">
+              <span class="journey-stat-label">Discovered Paths</span>
+              <span class="journey-stat-val" id="pathsMetricJourney">1</span>
+            </div>
+            <div class="journey-stat-col">
+              <span class="journey-stat-label">Unique States</span>
+              <span class="journey-stat-val" id="uniqueStatesCount">0</span>
+            </div>
+            <div class="journey-stat-col">
+              <span class="journey-stat-label">Loops Detected</span>
+              <span class="journey-stat-val" id="loopsCount">0</span>
+            </div>
+          </div>
+        </div>
+
+        <div class="journey-graph-card">
+          <div class="graph-canvas-container" id="journeyGraphContainer">
+            <div class="viewport-empty-placeholder">
+              <span class="viewport-empty-icon">☊</span>
+              <p>No journey data available yet. Start an autonomous audit to map user flows.</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 4: AUDIT FINDINGS MATRIX -->
+      <section class="view-container" id="view-findings">
+        <div class="findings-toolbar">
+          <div class="findings-search-wrapper">
+            <span class="search-icon-pos">🔍</span>
+            <input type="text" id="findingsSearch" class="findings-search-input" placeholder="Search defects, selectors, WCAG..." oninput="filterFindings()" />
+          </div>
+
+          <div class="findings-filter-pills">
+            <button class="filter-pill active" onclick="setFindingFilter('all', this)">ALL <span id="countAll">0</span></button>
+            <button class="filter-pill" onclick="setFindingFilter('accessibility', this)">A11Y <span id="countA11y">0</span></button>
+            <button class="filter-pill" onclick="setFindingFilter('ux', this)">UX FRICTION <span id="countUx">0</span></button>
+            <button class="filter-pill" onclick="setFindingFilter('navigation', this)">NAVIGATION <span id="countNav">0</span></button>
+            <button class="filter-pill" onclick="setFindingFilter('visual', this)">VISUAL <span id="countVisual">0</span></button>
+          </div>
+        </div>
+
+        <div class="findings-list-grid" id="findingsList">
+          <div class="viewport-empty-placeholder" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
+            <span class="viewport-empty-icon">◒</span>
+            <p>No findings recorded yet. Execute an audit run to evaluate UX friction and accessibility.</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 5: EXECUTIVE REPORTS -->
+      <section class="view-container" id="view-reports">
+        <div class="reports-header-card">
+          <div style="display: flex; justify-content: space-between; align-items: flex-start; flex-wrap: wrap; gap: 16px;">
+            <div>
+              <div class="eyebrow-tag">AUDIT SUMMARY REPORT</div>
+              <h2 class="panel-title" style="font-size:22px;" id="reportGoalTitle">Audit Summary</h2>
+              <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="reportMetaSubtitle">Run ID: — · Target: —</div>
+            </div>
+            <div class="report-export-actions">
+              <a id="reportLink" class="btn-report-action primary" target="_blank" style="display:none;">
+                <span>View Full Executive Report</span>
+                <span>↗</span>
+              </a>
+              <a id="downloadJsonBtn" class="btn-report-action" target="_blank" style="display:none;">
+                <span>Download JSON</span>
+                <span>↓</span>
+              </a>
+            </div>
+          </div>
+        </div>
+
+        <div class="reports-scorecards-grid">
+          <div class="scorecard-box">
+            <span class="scorecard-label">UX Friction Index</span>
+            <div class="scorecard-val" id="frictionMetric">—</div>
+            <span class="scorecard-sub">Scale 0 - 100 (Lower is better)</span>
+          </div>
+
+          <div class="scorecard-box">
+            <span class="scorecard-label">WCAG Compliance</span>
+            <div class="scorecard-val" id="wcagMetric">—</div>
+            <span class="scorecard-sub">2.1 AA Standard Audited</span>
+          </div>
+
+          <div class="scorecard-box">
+            <span class="scorecard-label">Discovered Paths</span>
+            <div class="scorecard-val" id="pathsMetric">—</div>
+            <span class="scorecard-sub">Autonomous Journey Branches</span>
+          </div>
+
+          <div class="scorecard-box">
+            <span class="scorecard-label">Goal Completion</span>
+            <div class="scorecard-val" id="goalMetric">—</div>
+            <span class="scorecard-sub" id="goalMetricSub">Awaiting execution</span>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 6: AI ENGINE & ORCHESTRATION -->
+      <section class="view-container" id="view-ai-engine">
+        <div class="engine-control-card">
+          <div class="engine-top-bar">
+            <div>
+              <div class="eyebrow-tag">CENTRAL AI PROVIDER ARCHITECTURE</div>
+              <h2 class="panel-title" style="font-size:20px;">Provider Selection, Health & Telemetry</h2>
+            </div>
+            <div class="mode-selector-capsule">
+              <button class="mode-toggle-btn active" id="btnModeAuto" onclick="switchProviderMode('AUTO')">AUTO</button>
+              <button class="mode-toggle-btn" id="btnModeGroq" onclick="switchProviderMode('GROQ')">GROQ</button>
+              <button class="mode-toggle-btn" id="btnModeGemini" onclick="switchProviderMode('GEMINI')">GEMINI</button>
+            </div>
+          </div>
+
+          <div class="ai-providers-deck-grid">
+            <!-- Groq Card -->
+            <div class="provider-telemetry-box" id="groqCard">
+              <div class="prov-box-top">
+                <div class="prov-name-group">
+                  <span class="prov-name">GROQ</span>
+                  <span class="prov-chip">LPUs</span>
+                </div>
+                <div class="prov-status-indicator">
+                  <span class="dot-healthy" id="groqDot"></span>
+                  <span style="font-size:12px;" id="groqStatus">Healthy</span>
+                </div>
+              </div>
+              <span class="prov-model-tag">qwen/qwen3.8-27b</span>
+              <div class="prov-metrics-list">
+                <div class="prov-metric-item">
+                  <span class="prov-metric-lbl">Moving Avg Latency:</span>
+                  <span class="lat-val" id="groqLatency">~580ms</span>
+                </div>
+                <div class="prov-metric-item">
+                  <span class="prov-metric-lbl">Endpoint:</span>
+                  <span class="font-mono" style="font-size:10px;color:var(--text-muted);">api.groq.com</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Gemini Card -->
+            <div class="provider-telemetry-box" id="geminiCard">
+              <div class="prov-box-top">
+                <div class="prov-name-group">
+                  <span class="prov-name">GOOGLE GEMINI</span>
+                  <span class="prov-chip">TPUs</span>
+                </div>
+                <div class="prov-status-indicator">
+                  <span class="dot-healthy" id="geminiDot"></span>
+                  <span style="font-size:12px;" id="geminiStatus">Healthy</span>
+                </div>
+              </div>
+              <span class="prov-model-tag">gemini-2.5-flash</span>
+              <div class="prov-metrics-list">
+                <div class="prov-metric-item">
+                  <span class="prov-metric-lbl">Moving Avg Latency:</span>
+                  <span class="lat-val" id="geminiLatency">~1.4s</span>
+                </div>
+                <div class="prov-metric-item">
+                  <span class="prov-metric-lbl">Endpoint:</span>
+                  <span class="font-mono" style="font-size:10px;color:var(--text-muted);">generativelanguage.google</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Diagnostics Card -->
+            <div class="provider-telemetry-box">
+              <div class="prov-box-top">
+                <span class="prov-name">DIAGNOSTICS</span>
+                <span class="prov-chip">Active Probe</span>
+              </div>
+              <p style="font-size:12px;color:var(--text-muted);">Pings both providers with lightweight verification probes to measure roundtrip latency.</p>
+              <button class="btn-run-diag" id="btnTestProviders" onclick="testAIProviders()">
+                <span>⚡ Test AI Providers</span>
+              </button>
+              <div id="diagFeedback" style="font-size:11px;color:var(--text-secondary);min-height:18px;"></div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- VIEW 7: SETTINGS & TARGETS -->
+      <section class="view-container" id="view-settings">
+        <div class="settings-card">
+          <div class="eyebrow-tag">SYSTEM CONFIGURATION</div>
+          <h2 class="panel-title" style="font-size:20px;">Execution Parameters & Target Presets</h2>
+
+          <div class="settings-row">
+            <div class="settings-desc-col">
+              <div class="settings-title">Default Target Application URL</div>
+              <div class="settings-subtext">The default website loaded into the black-box browser sandbox.</div>
+            </div>
+            <input class="control-input font-mono" style="max-width:320px;background:var(--bg-surface-elevated);border:1px solid var(--border-medium);padding:6px 10px;border-radius:6px;" value="http://127.0.0.1:8000/demo/" onchange="$('target').value = this.value;" />
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-desc-col">
+              <div class="settings-title">Viewport Dimensions</div>
+              <div class="settings-subtext">Standard desktop canvas resolution for visual perception and coordinate mapping.</div>
+            </div>
+            <span class="font-mono" style="font-size:12px;color:var(--text-primary);padding:4px 8px;background:var(--bg-surface-elevated);border-radius:4px;">1440 × 900 px</span>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-desc-col">
+              <div class="settings-title">Security & Key Storage</div>
+              <div class="settings-subtext">Keys are loaded exclusively from local .env and never sent to client code.</div>
+            </div>
+            <span class="global-status-badge completed">SECURE / CLIENT-SAFE</span>
+          </div>
+
+          <div class="settings-row">
+            <div class="settings-desc-col">
+              <div class="settings-title">Documentation & Source Repository</div>
+              <div class="settings-subtext">GitHub repository containing full black-box agent orchestration code.</div>
+            </div>
+            <a class="btn-ghost-sm" href="https://github.com/Miteshreddy/trace" target="_blank">View GitHub Repo ↗</a>
+          </div>
+        </div>
+      </section>
+
+      <!-- Toast Notification Container -->
+      <div class="toast-stack" id="toastStack"></div>
+
+      <!-- Evidence Zoom Inspector Modal -->
+      <div class="modal-backdrop" id="evidenceModal" onclick="if(event.target === this) closeEvidenceModal()">
+        <div class="evidence-modal-box">
+          <div class="modal-header">
+            <div>
+              <div class="eyebrow-tag" id="modalCategory">VISUAL TRACE INSPECTOR</div>
+              <h3 class="panel-title" id="modalTitle">Evidence Inspector</h3>
+            </div>
+            <button class="btn-close-modal" onclick="closeEvidenceModal()">✕</button>
+          </div>
+          <div class="modal-body">
+            <div class="modal-img-wrapper">
+              <img id="modalImg" src="" alt="Evidence Viewport Trace" />
+            </div>
+            <div id="modalDesc" style="font-size:13px;color:var(--text-secondary);line-height:1.5;"></div>
+            <div id="modalRec" class="finding-remediation-box" style="display:none;"></div>
+          </div>
+        </div>
+      </div>
     </main>
   </div>
 
