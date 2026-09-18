@@ -263,22 +263,23 @@
     if (label) label.textContent = 'Exploring interface';
     if (sessionStatus) sessionStatus.textContent = 'Preparing session';
 
-    await sleep(400);
+    // FAST typing: 7ms/char for ~50 chars ≈ 350ms total
+    await sleep(100);
     for (const ch of goalText) {
       typed.textContent += ch;
-      await sleep(22);
+      await sleep(7);
     }
-    await sleep(300);
+    await sleep(80);
 
     if (demoState) {
       demoState.classList.add('ready');
       demoState.innerHTML = '<i></i> Goal understood';
     }
     command.classList.add('compact');
-    await sleep(200);
+    await sleep(60);
 
     consoleEl.classList.add('visible');
-    await sleep(400);
+    await sleep(120);
     if (sessionStatus) sessionStatus.textContent = 'Agent is browsing';
 
     for (let i = 0; i < activities.length; i++) {
@@ -292,7 +293,13 @@
         cursor.style.top = path[i][1] + '%';
       }
       if (label && labels[i]) label.textContent = labels[i];
-      await sleep(450);
+
+      // Click ripple effect
+      await sleep(160);
+      if (cursor) { cursor.classList.add('clicking'); }
+      await sleep(100);
+      if (cursor) { cursor.classList.remove('clicking'); }
+      await sleep(80);
 
       activities[i].classList.remove('current');
       activities[i].classList.add('done');
@@ -342,24 +349,65 @@
     if (goalInput && state.goal) goalInput.value = state.goal;
     if (urlInput && state.targetUrl) urlInput.value = state.targetUrl;
 
-    const validateReach = () => {
-      const val = (urlInput?.value || '').trim();
-      let ok = false;
-      try {
-        const u = new URL(val);
-        ok = u.protocol === 'http:' || u.protocol === 'https:';
-      } catch (e) {
-        ok = false;
-      }
-      if (reach) {
-        reach.innerHTML = ok ? '<i></i> Target ready' : '<i style="background:#f07d8a"></i> Check target URL';
-        reach.style.color = ok ? '#757984' : '#f0a8a8';
-      }
-      return ok;
+    let _reachable = false;
+    let _reachCheckTimer = null;
+
+    const setReachBadge = (state, label, color) => {
+      if (!reach) return;
+      const dot = color || '#757984';
+      reach.innerHTML = `<i style="background:${dot}"></i> ${label}`;
+      reach.style.color = state === 'ok' ? '#757984' : '#f0a8a8';
     };
 
-    urlInput?.removeEventListener('input', validateReach);
-    urlInput?.addEventListener('input', validateReach);
+    const validateReach = async () => {
+      const val = (urlInput?.value || '').trim();
+      _reachable = false;
+      // Quick format check first
+      try {
+        const u = new URL(val);
+        if (u.protocol !== 'http:' && u.protocol !== 'https:') {
+          setReachBadge('err', 'Invalid URL scheme', '#f07d8a');
+          return false;
+        }
+      } catch (e) {
+        setReachBadge('err', 'Check target URL', '#f07d8a');
+        return false;
+      }
+      // Real backend probe
+      setReachBadge('check', 'Checking…', '#a0a4b0');
+      try {
+        const r = await fetch(`/api/check-target?url=${encodeURIComponent(val)}`);
+        const data = r.ok ? await r.json() : { reachable: false, error_type: 'unreachable' };
+        if (data.reachable) {
+          _reachable = true;
+          setReachBadge('ok', 'Target reachable', '#7ed9a0');
+        } else {
+          const labels = {
+            connection_refused: 'Server offline',
+            timeout: 'Timed out',
+            dns_failure: 'DNS not found',
+            ssl_error: 'SSL error',
+            redirect_failure: 'Redirect loop',
+            invalid_url: 'Invalid URL',
+          };
+          const msg = labels[data.error_type] || 'Unreachable';
+          setReachBadge('err', msg, '#f07d8a');
+        }
+      } catch (e) {
+        // fetch itself failed — show format-only fallback
+        _reachable = true;
+        setReachBadge('ok', 'Target set', '#a0a4b0');
+      }
+      return _reachable;
+    };
+
+    const scheduleReachCheck = () => {
+      clearTimeout(_reachCheckTimer);
+      _reachCheckTimer = setTimeout(() => validateReach(), 600);
+    };
+
+    urlInput?.removeEventListener('input', scheduleReachCheck);
+    urlInput?.addEventListener('input', scheduleReachCheck);
     validateReach();
 
     // Toggle advanced
@@ -393,8 +441,9 @@
           return;
         }
 
-        if (!validateReach()) {
-          showError('Enter a valid target URL, including http:// or https://.');
+        const reachOk = await validateReach();
+        if (!reachOk) {
+          showError('Target URL is unreachable. Verify the server is running and the URL is correct.');
           urlInput?.focus();
           return;
         }
@@ -558,7 +607,7 @@
     const cursorLabel = $('#liveCursorLabel');
 
     if (statusEl && run.status) {
-      statusEl.textContent = run.status === 'running' ? `Step ${run.current_step || 0} — Exploring` : run.status.toUpperCase();
+      statusEl.textContent = run.status === 'running' ? `Step ${run.step_count || 0} — Exploring` : run.status.toUpperCase();
     }
 
     if (countEl) countEl.textContent = `${events.length} events`;
@@ -578,17 +627,17 @@
     }
 
     // Update steps based on progress
-    const step = run.current_step || events.length;
+    const step = run.step_count || events.length;
     if (step >= 1) setStepCompleted(1);
     if (step >= 2) setStepCompleted(2);
     if (step >= 4) setStepCompleted(3);
     if (step >= 8) setStepCompleted(4);
     if (step >= 12) setStepCompleted(5);
 
-    // Show latest screenshot if available
-    if (run.last_screenshot) {
+    // Show latest screenshot if available (RunState field: latest_screenshot)
+    if (run.latest_screenshot) {
       if (screenshotImg && mockView) {
-        screenshotImg.src = run.last_screenshot;
+        screenshotImg.src = run.latest_screenshot;
         screenshotImg.style.display = 'block';
         mockView.style.display = 'none';
       }
@@ -634,7 +683,8 @@
     const emptyState = $('#evaluationEmptyState');
     const activeState = $('#evaluationActiveState');
     const grid = $('#evaluationFindingsGrid');
-    const findings = (state.runData && state.runData.findings) || [];
+    // RunState uses `issues` not `findings`
+    const findings = (state.runData && (state.runData.issues || state.runData.findings)) || [];
 
     if (!findings.length) {
       if (emptyState) emptyState.style.display = 'grid';
@@ -684,9 +734,12 @@
     if (activeState) activeState.style.display = 'block';
 
     const journey = run.journey || {};
-    $('#jUniqueStates') && ($('#jUniqueStates').textContent = journey.unique_states || (run.events ? Math.min(run.events.length, 6) : 3));
-    $('#jPathsMapped') && ($('#jPathsMapped').textContent = journey.paths_mapped || 1);
-    $('#jLoopsAvoided') && ($('#jLoopsAvoided').textContent = journey.loops_avoided || 0);
+    const journeyNodes = Array.isArray(journey.nodes) ? journey.nodes : [];
+    const journeyEdges = Array.isArray(journey.edges) ? journey.edges : [];
+    const loopNodes = journeyNodes.filter(n => n.is_loop).length;
+    $('#jUniqueStates') && ($('#jUniqueStates').textContent = journeyNodes.length || (run.events ? Math.min(run.events.length, 6) : 3));
+    $('#jPathsMapped') && ($('#jPathsMapped').textContent = run.paths_discovered || 1);
+    $('#jLoopsAvoided') && ($('#jLoopsAvoided').textContent = loopNodes);
 
     const dag = $('#journeysDagContainer');
     if (dag && state.events.length) {
@@ -709,7 +762,8 @@
   function renderFindingsView() {
     const emptyState = $('#findingsEmptyState');
     const activeList = $('#findingsActiveList');
-    const findings = (state.runData && state.runData.findings) || [];
+    // RunState uses `issues` not `findings`
+    const findings = (state.runData && (state.runData.issues || state.runData.findings)) || [];
 
     // Filter tabs
     $$('#view-findings .filter-tab').forEach((tab) => {
@@ -748,7 +802,8 @@
 
   function renderFilteredFindings() {
     const list = $('#findingsActiveList');
-    const findings = (state.runData && state.runData.findings) || [];
+    // RunState uses `issues` field — support both for compatibility
+    const findings = (state.runData && (state.runData.issues || state.runData.findings)) || [];
     const q = ($('#findingsSearch')?.value || '').toLowerCase().trim();
 
     const filtered = findings.filter((f) => {
@@ -808,13 +863,16 @@
     if (htmlExport) htmlExport.href = `/api/runs/${run.id}/report`;
     if (jsonExport) jsonExport.href = `/api/runs/${run.id}/report.json`;
 
-    // Metrics
-    const findings = run.findings || [];
-    const frictionVal = findings.length > 0 ? (findings.length * 1.5).toFixed(1) : '0.0';
+    // Metrics — use backend-computed metrics when available, derive from issues otherwise
+    const findings = run.issues || run.findings || [];
+    const metrics = run.metrics || {};
+    const frictionVal = metrics.friction_score != null ? metrics.friction_score.toFixed(1) : (findings.length > 0 ? (findings.length * 1.5).toFixed(1) : '0.0');
     $('#metricFriction') && ($('#metricFriction').textContent = frictionVal);
-    $('#metricWcag') && ($('#metricWcag').textContent = findings.length === 0 ? 'AAA' : 'AA');
-    $('#metricPaths') && ($('#metricPaths').textContent = run.journey?.paths_mapped || '1');
-    $('#metricSteps') && ($('#metricSteps').textContent = run.current_step || state.events.length || '0');
+    $('#metricWcag') && ($('#metricWcag').textContent = metrics.wcag_grade || (findings.length === 0 ? 'AAA' : 'AA'));
+    const journeyData = run.journey || {};
+    const journeyNodes = Array.isArray(journeyData.nodes) ? journeyData.nodes : [];
+    $('#metricPaths') && ($('#metricPaths').textContent = run.paths_discovered || '1');
+    $('#metricSteps') && ($('#metricSteps').textContent = run.step_count || state.events.length || '0');
 
     // Editorial Summary
     const editorial = $('#reportEditorialContent');

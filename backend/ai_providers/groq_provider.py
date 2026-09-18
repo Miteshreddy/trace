@@ -9,16 +9,30 @@ from typing import Any
 from PIL import Image
 from openai import OpenAI, RateLimitError
 
-from ..config import GROQ_API_KEY, GROQ_BASE_URL, GROQ_MODEL
+from ..config import GROQ_API_KEY, GROQ_API_KEY_2, GROQ_BASE_URL, GROQ_MODEL
 from .base import AIProvider
+
+# Models that support vision (image) input on Groq
+_VISION_CAPABLE_GROQ_MODELS = {
+    "llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-scout-17b-16e-instruct",
+    "meta-llama/llama-4-maverick-17b-128e-instruct",
+    "llama-4-maverick",
+}
 
 
 class GroqProvider(AIProvider):
     def __init__(self) -> None:
         super().__init__(name="groq", model=GROQ_MODEL)
         self.api_key = GROQ_API_KEY
+        self.api_key_2 = GROQ_API_KEY_2
         self.base_url = GROQ_BASE_URL
         self.client: OpenAI | None = None
+        self.client_2: OpenAI | None = None
+        # Determine if this model supports image input
+        self.supports_vision: bool = any(
+            k in GROQ_MODEL.lower() for k in ["llama-4-scout", "llama-4-maverick", "vision"]
+        )
 
         if self.is_configured():
             self.client = OpenAI(api_key=self.api_key, base_url=self.base_url)
@@ -27,6 +41,10 @@ class GroqProvider(AIProvider):
         else:
             self.health.configured = False
             self.health.status = "unconfigured"
+
+        # Secondary key client for rate-limit failover
+        if self.api_key_2 and len(self.api_key_2) > 5:
+            self.client_2 = OpenAI(api_key=self.api_key_2, base_url=self.base_url)
 
     def is_configured(self) -> bool:
         return bool(self.api_key and len(self.api_key) > 5)
@@ -71,7 +89,7 @@ class GroqProvider(AIProvider):
             return False, 0.0, "API key not configured"
         start = time.perf_counter()
         try:
-            res = self.client.chat.completions.create(
+            self.client.chat.completions.create(
                 model=self.model,
                 messages=[{"role": "user", "content": "ping"}],
                 max_tokens=10,
@@ -131,16 +149,15 @@ class GroqProvider(AIProvider):
         }
 
         system = (
-            "You are the visual navigation brain of TRACE//QA, an autonomous black-box UI testing agent.\n"
-            "Your objective is to accomplish the user goal on the target interface like a human user.\n"
+            "You are the autonomous browser controller for TRACE//QA, a UI testing agent.\n"
+            "Your objective is to accomplish the user goal on the target interface.\n"
             "Rules:\n"
-            "1. Inspect screenshot & visible UI controls (`ui_map`). Every element has an id (e.g. 'e0').\n"
+            "1. Inspect visible UI controls in `ui_map`. Every element has an id (e.g. 'e0').\n"
             "2. Always pick a valid `element_id` from `ui_map` when clicking or typing.\n"
-            "3. If a modal/popup blocks the view, click its close ('×') or continue button.\n"
-            "4. If searching, type into search input and press Enter or click Search.\n"
-            "5. If filtering, click the relevant filter button.\n"
-            "6. To add a shoe to cart, click its 'Add to cart' button.\n"
-            "7. When the user goal is completely achieved, set action='finish' and goal_complete=true.\n"
+            "3. If a modal/popup blocks the view, use action='dismiss_modal'.\n"
+            "4. If searching, type into search input then press_key Enter.\n"
+            "5. When the user goal is fully achieved, set action='finish' and goal_complete=true.\n"
+            "6. If no progress after 3 same actions, set stuck=true and try a different approach.\n"
             "Output strictly valid JSON matching the schema."
         )
 
@@ -153,7 +170,7 @@ class GroqProvider(AIProvider):
             ],
             "accessibility_tree": ax_tree[:25],
             "recent_actions": [
-                {"step": h.get("step"), "action": h.get("action"), "element_id": h.get("element_id")}
+                {"step": h.get("step"), "action": h.get("action"), "element_id": h.get("element_id"), "result_ok": h.get("action_result", {}).get("ok", True)}
                 for h in history[-4:]
             ],
         }
@@ -164,56 +181,79 @@ class GroqProvider(AIProvider):
             + json.dumps(payload, ensure_ascii=False)
         )
 
-        optimized_image = self._optimize_and_encode_image(screenshot, max_dim=480)
         start_time = time.perf_counter()
 
-        for attempt in range(2):
-            try:
-                use_vision = (attempt == 0)
-                messages = [{"role": "system", "content": system}]
-                if use_vision:
-                    messages.append({
-                        "role": "user",
-                        "content": [
-                            {"type": "text", "text": user_text},
-                            {"type": "image_url", "image_url": {"url": optimized_image}},
-                        ],
-                    })
-                else:
-                    messages.append({"role": "user", "content": user_text})
+        # Try primary key first, then secondary key on rate limit
+        clients_to_try = [c for c in [self.client, self.client_2] if c is not None]
+        if not clients_to_try:
+            raise RuntimeError("No Groq client available")
 
-                response = self.client.chat.completions.create(
-                    model=self.model,
-                    temperature=0.1,
-                    max_tokens=220,
-                    timeout=15.0,
-                    response_format={
-                        "type": "json_schema",
-                        "json_schema": {
-                            "name": "ui_action",
-                            "strict": True,
-                            "schema": schema,
+        last_err: Exception | None = None
+        for client_idx, active_client in enumerate(clients_to_try):
+            for attempt in range(2):
+                try:
+                    # Attempt 0: use vision if model supports it
+                    # Attempt 1: text-only fallback
+                    # For non-vision models: always text-only
+                    use_vision = (attempt == 0) and self.supports_vision
+
+                    messages = [{"role": "system", "content": system}]
+                    if use_vision:
+                        optimized_image = self._optimize_and_encode_image(screenshot, max_dim=480)
+                        messages.append({
+                            "role": "user",
+                            "content": [
+                                {"type": "text", "text": user_text},
+                                {"type": "image_url", "image_url": {"url": optimized_image}},
+                            ],
+                        })
+                    else:
+                        messages.append({"role": "user", "content": user_text})
+
+                    response = active_client.chat.completions.create(
+                        model=self.model,
+                        temperature=0.1,
+                        max_tokens=250,
+                        timeout=18.0,
+                        response_format={
+                            "type": "json_schema",
+                            "json_schema": {
+                                "name": "ui_action",
+                                "strict": True,
+                                "schema": schema,
+                            },
                         },
-                    },
-                    messages=messages,
-                )
-                lat = (time.perf_counter() - start_time) * 1000.0
-                self.record_success(lat)
-                content = response.choices[0].message.content or "{}"
-                return self._parse_json_response(content)
-            except RateLimitError as rle:
-                if attempt == 0:
-                    time.sleep(3.5)
-                else:
+                        messages=messages,
+                    )
                     lat = (time.perf_counter() - start_time) * 1000.0
-                    self.record_failure(str(rle))
-                    raise
-            except Exception as e:
-                lat = (time.perf_counter() - start_time) * 1000.0
-                self.record_failure(str(e))
-                raise
+                    self.record_success(lat)
+                    content = response.choices[0].message.content or "{}"
+                    parsed = self._parse_json_response(content)
+                    if parsed and parsed.get("action"):
+                        return parsed
+                    # If empty/invalid, try text-only next
+                    if use_vision:
+                        continue
+                    # Already text-only and still failed — raise
+                    raise RuntimeError("Model returned empty/invalid action JSON")
 
-        raise RuntimeError("Groq retries exhausted.")
+                except RateLimitError as rle:
+                    last_err = rle
+                    if attempt == 0 and self.supports_vision:
+                        # Try text-only mode next
+                        continue
+                    else:
+                        # Exhausted attempts for this client
+                        break
+                except Exception as e:
+                    lat = (time.perf_counter() - start_time) * 1000.0
+                    self.record_failure(str(e))
+                    raise
+
+        # All clients exhausted on rate limit
+        lat = (time.perf_counter() - start_time) * 1000.0
+        self.record_failure(str(last_err))
+        raise last_err  # type: ignore[misc]
 
     def audit_run(
         self,
@@ -274,7 +314,7 @@ class GroqProvider(AIProvider):
             {
                 "goal": goal,
                 "trajectory_summary": [
-                    {"step": t.get("step"), "action": t.get("action"), "element": t.get("element_id"), "rationale": t.get("rationale")}
+                    {"step": t.get("step"), "action": t.get("action"), "element": t.get("element_id"), "rationale": t.get("rationale"), "ok": t.get("action_result", {}).get("ok", True)}
                     for t in trajectory[-10:]
                 ],
                 "heuristic_findings": heuristic_findings[:10],
@@ -283,12 +323,17 @@ class GroqProvider(AIProvider):
         )
 
         start_time = time.perf_counter()
+        # Use secondary key if primary has been rate-limited recently
+        client_to_use = self.client
+        if self.client_2 and self.health.failures > 0 and self.health.last_error and "rate" in self.health.last_error.lower():
+            client_to_use = self.client_2
+
         try:
-            response = self.client.chat.completions.create(
+            response = client_to_use.chat.completions.create(  # type: ignore[union-attr]
                 model=self.model,
                 temperature=0.1,
-                max_tokens=450,
-                timeout=18.0,
+                max_tokens=500,
+                timeout=22.0,
                 response_format={
                     "type": "json_schema",
                     "json_schema": {

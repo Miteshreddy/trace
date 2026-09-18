@@ -43,6 +43,14 @@ body {
   letter-spacing: -0.018em;
   min-height: 100vh;
   overflow-x: hidden;
+  cursor: none;
+}
+
+/* Touch devices: restore cursor */
+@media (pointer: coarse) {
+  body { cursor: auto; }
+  button, a { cursor: pointer; }
+  input, textarea { cursor: text; }
 }
 
 button, input, textarea, select {
@@ -123,21 +131,33 @@ button, a {
 
 /* ==========================================================================
    GLOBAL HEADER (Universal Across All Views)
+   Layout: logo LEFT | nav ABSOLUTE CENTER | right slot (Status + CTA)
    ========================================================================== */
 
 .site-header {
-  height: 76px;
-  width: min(1320px, calc(100% - 48px));
-  margin: 0 auto;
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 64px;
+  z-index: 9000;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-bottom: 1px solid var(--line-soft);
-  position: sticky;
-  top: 0;
-  z-index: 60;
-  background: rgba(8, 9, 12, 0.85);
-  backdrop-filter: blur(14px);
+  background: rgba(8, 9, 12, 0.72);
+  backdrop-filter: blur(16px) saturate(1.2);
+  -webkit-backdrop-filter: blur(16px) saturate(1.2);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.05);
+  padding: 0 clamp(20px, 4vw, 70px);
+  transition: background 0.25s ease, border-color 0.25s ease, box-shadow 0.25s ease;
+}
+
+.site-header.scrolled {
+  background: rgba(8, 9, 12, 0.92);
+  backdrop-filter: blur(20px) saturate(1.4);
+  -webkit-backdrop-filter: blur(20px) saturate(1.4);
+  border-bottom: 1px solid rgba(255, 255, 255, 0.09);
+  box-shadow: 0 10px 30px rgba(0, 0, 0, 0.5);
 }
 
 .logo {
@@ -149,6 +169,11 @@ button, a {
   letter-spacing: 0.3em;
   background: transparent;
   border: none;
+  flex-shrink: 0;
+  position: relative;
+  z-index: 2;
+  text-decoration: none;
+  color: #f0f0f4;
 }
 
 .logo-mark {
@@ -167,12 +192,17 @@ button, a {
   filter: drop-shadow(0 0 15px rgba(154, 140, 255, 0.26));
 }
 
+/* TRUE CENTERED NAV — absolutely centered across the fixed header */
 .desktop-nav {
+  position: absolute;
+  left: 50%;
+  transform: translateX(-50%);
   display: flex;
   align-items: center;
   gap: 28px;
   font-size: 13px;
   color: #8c8f99;
+  z-index: 1;
 }
 
 .desktop-nav a {
@@ -200,68 +230,6 @@ button, a {
   background: var(--violet);
   border-radius: 2px;
   box-shadow: 0 0 10px rgba(154, 140, 255, 0.8);
-}
-
-.header-status {
-  height: 40px;
-  min-width: 116px;
-  padding: 0 14px;
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 8px;
-  background: rgba(255, 255, 255, 0.018);
-  color: #858792;
-  font-size: 10px;
-  letter-spacing: 0.14em;
-  font-weight: 700;
-  backdrop-filter: blur(10px);
-}
-
-.header-status i {
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: #777b87;
-}
-
-.header-status[data-state="running"] {
-  color: #b8b2ff;
-  border-color: rgba(154, 140, 255, 0.3);
-  background: rgba(123, 102, 255, 0.05);
-}
-
-.header-status[data-state="running"] i {
-  background: var(--violet);
-  box-shadow: 0 0 14px rgba(154, 140, 255, 0.8);
-  animation: pulseDot 1.4s infinite ease-in-out;
-}
-
-.header-status[data-state="success"] {
-  color: #9ae6bf;
-  border-color: rgba(99, 216, 161, 0.25);
-}
-
-.header-status[data-state="success"] i {
-  background: var(--green);
-  box-shadow: 0 0 14px rgba(99, 216, 161, 0.65);
-}
-
-.header-status[data-state="failed"] {
-  color: #f2a0aa;
-  border-color: rgba(240, 125, 138, 0.27);
-}
-
-.header-status[data-state="failed"] i {
-  background: var(--red);
-  box-shadow: 0 0 14px rgba(240, 125, 138, 0.6);
-}
-
-@keyframes pulseDot {
-  0%, 100% { opacity: 1; transform: scale(1); }
-  50% { opacity: 0.45; transform: scale(0.85); }
 }
 
 /* Buttons & Typography Tokens */
@@ -330,9 +298,10 @@ button, a {
 
 .hero-v4 {
   position: relative;
-  min-height: calc(100vh - 76px);
+  /* top padding = fixed header height + original vertical padding */
+  min-height: 100vh;
   overflow: hidden;
-  padding: 72px 0 100px;
+  padding: 136px 0 100px;
 }
 
 .hero-grid-bg {
@@ -449,25 +418,64 @@ button, a {
   padding-top: 24px;
 }
 
+/* ==========================================================================
+   FAST COORDINATED HERO CONSOLE ANIMATION (<0.80s total)
+   Timing sequence matching high-end SaaS product launch:
+   0.00–0.30s: Console moves into position with 3% scale & 20px upward motion
+   0.15–0.45s: Console frame, glow, floor, and header appear sharply
+   0.25–0.60s: Fake browser content inside pops into clarity
+   0.35–0.70s: Left steps & right activity stream items stagger in (40-50ms apart)
+   0.45–0.80s: Live pulse / cursor / action point activates
+   ========================================================================== */
+
 .console {
   width: 100%;
-  border: 1px solid rgba(255, 255, 255, 0.12);
+  border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 20px;
   overflow: hidden;
   background: linear-gradient(180deg, #111218, #0d0e13);
-  box-shadow: 0 38px 100px rgba(0, 0, 0, 0.48), 0 0 0 1px rgba(128, 108, 255, 0.04);
+  box-shadow: 0 15px 40px rgba(0, 0, 0, 0.3);
   opacity: 0;
-  transform: translateY(22px) scale(0.985);
-  transition: opacity 0.56s cubic-bezier(0.22, 1, 0.36, 1), transform 0.56s cubic-bezier(0.22, 1, 0.36, 1), box-shadow 0.56s ease;
+  transform: translateY(20px) scale(0.97);
+  transition:
+    opacity 0.28s cubic-bezier(0.16, 1, 0.3, 1),
+    transform 0.30s cubic-bezier(0.16, 1, 0.3, 1),
+    box-shadow 0.30s cubic-bezier(0.16, 1, 0.3, 1),
+    border-color 0.30s cubic-bezier(0.16, 1, 0.3, 1);
+  will-change: transform, opacity;
 }
 
 .console.visible {
   opacity: 1;
-  transform: none;
-  box-shadow: 0 38px 100px rgba(0, 0, 0, 0.48), 0 0 60px rgba(112, 91, 255, 0.09);
+  transform: translateY(0) scale(1);
+  border-color: rgba(255, 255, 255, 0.12);
+  box-shadow: 0 38px 100px rgba(0, 0, 0, 0.48), 0 0 60px rgba(112, 91, 255, 0.14);
 }
 
-.console-head {
+.console-floor {
+  position: absolute;
+  bottom: -35px;
+  left: 5%;
+  right: 5%;
+  height: 70px;
+  background: radial-gradient(ellipse at center, rgba(142, 122, 255, 0.22) 0%, rgba(111, 91, 255, 0.08) 45%, transparent 75%);
+  filter: blur(24px);
+  pointer-events: none;
+  opacity: 0;
+  transform: scale(0.92);
+  transition:
+    opacity 0.30s cubic-bezier(0.16, 1, 0.3, 1) 0.15s,
+    transform 0.30s cubic-bezier(0.16, 1, 0.3, 1) 0.15s;
+}
+
+.hero-console-slot:has(.console.visible) .console-floor,
+.console.visible + .console-floor {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* 0.15–0.45s: Console head appears sharply */
+.console .console-head {
   height: 54px;
   padding: 0 15px;
   display: grid;
@@ -475,6 +483,16 @@ button, a {
   align-items: center;
   border-bottom: 1px solid var(--line-soft);
   background: rgba(255, 255, 255, 0.012);
+  opacity: 0;
+  transform: translateY(-6px);
+  transition:
+    opacity 0.22s cubic-bezier(0.16, 1, 0.3, 1) 0.15s,
+    transform 0.22s cubic-bezier(0.16, 1, 0.3, 1) 0.15s;
+}
+
+.console.visible .console-head {
+  opacity: 1;
+  transform: translateY(0);
 }
 
 .console-brand {
@@ -835,7 +853,7 @@ button, a {
   position: absolute;
   left: 28%;
   top: 34%;
-  transition: left 0.42s cubic-bezier(0.22, 1, 0.36, 1), top 0.42s cubic-bezier(0.22, 1, 0.36, 1);
+  transition: left 0.38s cubic-bezier(0.22, 1, 0.36, 1), top 0.38s cubic-bezier(0.22, 1, 0.36, 1);
   pointer-events: none;
   z-index: 10;
 }
@@ -847,6 +865,32 @@ button, a {
   border-radius: 50%;
   background: #8d79ff;
   box-shadow: 0 0 0 7px rgba(141, 121, 255, 0.14), 0 0 28px rgba(114, 87, 255, 0.5);
+  transition: transform 0.1s ease, box-shadow 0.1s ease;
+}
+
+.cursor.clicking i {
+  transform: scale(0.75);
+  box-shadow: 0 0 0 14px rgba(141, 121, 255, 0.22), 0 0 44px rgba(114, 87, 255, 0.7);
+}
+
+/* Ripple ring when clicking */
+.cursor.clicking::after {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  width: 0;
+  height: 0;
+  border-radius: 50%;
+  background: transparent;
+  border: 2px solid rgba(141, 121, 255, 0.6);
+  transform: translate(-50%, -50%);
+  animation: cursorRipple 0.35s ease-out forwards;
+}
+
+@keyframes cursorRipple {
+  from { width: 0; height: 0; opacity: 1; }
+  to   { width: 36px; height: 36px; opacity: 0; }
 }
 
 .cursor b {
@@ -898,7 +942,18 @@ button, a {
   padding: 10px 8px;
   border: 1px solid transparent;
   border-radius: 10px;
-  transition: all 0.25s ease;
+  /* Start hidden for JS-driven reveal */
+  opacity: 0;
+  transform: translateX(6px);
+  transition: opacity 0.16s ease, transform 0.18s ease, background 0.2s ease, border-color 0.2s ease;
+}
+
+/* When revealed by JS */
+.activity-item.revealed,
+.activity-item.current,
+.activity-item.done {
+  opacity: 1;
+  transform: none;
 }
 
 .activity-item i {
@@ -2306,17 +2361,18 @@ button, a {
     display: none;
   }
   .site-header {
-    width: calc(100% - 28px);
-    height: 68px;
+    width: 100%;
+    left: 0;
+    right: 0;
+    height: 60px;
+    padding: 0 16px;
   }
   .desktop-nav {
+    position: static;
+    transform: none;
     gap: 16px;
     font-size: 11px;
-  }
-  .header-status {
-    min-width: 82px;
-    height: 36px;
-    font-size: 8px;
+    margin: 0 auto;
   }
   .hero-v4 {
     padding: 52px 0 80px;
@@ -2402,9 +2458,6 @@ button, a {
   .desktop-nav {
     display: none;
   }
-  .header-status {
-    min-width: 78px;
-  }
   .hero-copy h1 {
     font-size: 44px;
   }
@@ -2477,4 +2530,147 @@ button, a {
   .caret {
     animation: none;
   }
+}
+
+/* ==========================================================================
+   PREMIUM GLOW EFFECTS — Obsidian Violet System
+   Subtle, restrained glows that feel premium without being cyberpunk
+   ========================================================================== */
+
+/* Ensure text fields remain usable with custom cursor */
+input, textarea, [contenteditable] {
+  cursor: text !important;
+}
+
+/* Hero section ambient glow */
+.hero-v4::before {
+  content: '';
+  position: absolute;
+  top: -120px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 700px;
+  height: 500px;
+  background: radial-gradient(ellipse at center, rgba(111, 91, 255, 0.08) 0%, transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* Hero prompt box glow */
+.hero-demo-command {
+  position: relative;
+}
+.hero-demo-command::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  border-radius: 20px;
+  background: linear-gradient(135deg, rgba(154, 140, 255, 0.15), rgba(111, 91, 255, 0.06), transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Live console section glow */
+.console {
+  position: relative;
+}
+.console::after {
+  content: '';
+  position: absolute;
+  bottom: -40px;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 60%;
+  height: 80px;
+  background: radial-gradient(ellipse, rgba(111, 91, 255, 0.12) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Evidence section glow */
+.evidence-section {
+  position: relative;
+}
+.evidence-section::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  right: 0;
+  transform: translateY(-50%);
+  width: 400px;
+  height: 400px;
+  background: radial-gradient(ellipse at right center, rgba(99, 216, 161, 0.06) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Evidence card front premium glow border */
+.evidence-card-front {
+  box-shadow: 0 0 0 1px rgba(154, 140, 255, 0.12), 0 40px 80px rgba(0, 0, 0, 0.4), 0 0 60px rgba(111, 91, 255, 0.08);
+}
+
+/* Journey section glow */
+.trace-motion-section {
+  position: relative;
+}
+.trace-motion-section::before {
+  content: '';
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 800px;
+  height: 300px;
+  background: radial-gradient(ellipse, rgba(111, 91, 255, 0.05) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* CTA section ambient glow */
+.cta-card {
+  position: relative;
+  overflow: hidden;
+}
+.cta-card::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 500px;
+  height: 200px;
+  background: radial-gradient(ellipse at top, rgba(154, 140, 255, 0.1) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Command form glow */
+.command-box {
+  position: relative;
+}
+.command-box::before {
+  content: '';
+  position: absolute;
+  inset: -2px;
+  border-radius: 22px;
+  background: linear-gradient(135deg, rgba(154, 140, 255, 0.1), rgba(111, 91, 255, 0.04), transparent);
+  pointer-events: none;
+  z-index: -1;
+}
+
+/* Live console active glow pulse */
+@keyframes glowPulse {
+  0%, 100% { opacity: 0.6; }
+  50%       { opacity: 1.0; }
+}
+
+.console-status i {
+  animation: glowPulse 2s ease-in-out infinite;
+}
+
+/* Findings card hover glow */
+.finding-card:hover {
+  box-shadow: 0 0 0 1px rgba(154, 140, 255, 0.18), 0 20px 60px rgba(0, 0, 0, 0.35), 0 0 40px rgba(111, 91, 255, 0.06);
+  transform: translateY(-1px);
+}
+
+/* Report metric box glow on hover */
+.report-metric-box:hover {
+  box-shadow: 0 0 0 1px rgba(154, 140, 255, 0.15), 0 0 30px rgba(111, 91, 255, 0.08);
 }

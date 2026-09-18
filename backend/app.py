@@ -2,10 +2,13 @@ from __future__ import annotations
 
 import asyncio
 import os
+import socket
 import uuid
 from pathlib import Path
 from typing import Any
+from urllib.parse import urlparse
 
+import httpx
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.staticfiles import StaticFiles
@@ -98,6 +101,59 @@ async def select_provider(req: ProviderSelectRequest) -> dict[str, Any]:
 async def test_providers() -> dict[str, Any]:
     """Execute live diagnostic pings to both Groq and Gemini."""
     return ai_provider_manager.test_all_providers()
+
+
+@app.get("/api/check-target")
+async def check_target(url: str) -> dict[str, Any]:
+    """
+    Perform a real HTTP reachability check on the given URL.
+    Local/loopback targets (localhost, 127.x.x.x, ::1) are explicitly allowed.
+    Returns: { reachable, status_code, error_type, redirect_url }
+    error_type ∈ reachable | unreachable | timeout | connection_refused |
+                  dns_failure | ssl_error | redirect_failure | invalid_url | browser_launch_failure
+    """
+    if not url or not url.strip():
+        return {"reachable": False, "error_type": "invalid_url", "message": "URL is empty"}
+
+    try:
+        parsed = urlparse(url.strip())
+        if parsed.scheme not in ("http", "https"):
+            return {"reachable": False, "error_type": "invalid_url", "message": "URL must start with http:// or https://"}
+    except Exception:
+        return {"reachable": False, "error_type": "invalid_url", "message": "Could not parse URL"}
+
+    try:
+        async with httpx.AsyncClient(
+            follow_redirects=True,
+            timeout=httpx.Timeout(connect=4.0, read=6.0, write=4.0, pool=4.0),
+            verify=False,  # Allow self-signed certs for local dev
+        ) as client:
+            response = await client.get(url.strip(), headers={"User-Agent": "TRACE-QA/2.0"})
+            final_url = str(response.url)
+            return {
+                "reachable": True,
+                "error_type": "reachable",
+                "status_code": response.status_code,
+                "redirect_url": final_url if final_url != url.strip() else None,
+            }
+    except httpx.ConnectTimeout:
+        return {"reachable": False, "error_type": "timeout", "message": "Connection timed out"}
+    except httpx.ReadTimeout:
+        return {"reachable": False, "error_type": "timeout", "message": "Read timed out"}
+    except httpx.ConnectError as e:
+        err = str(e).lower()
+        if "connection refused" in err or "econnrefused" in err:
+            return {"reachable": False, "error_type": "connection_refused", "message": "Connection refused"}
+        if "name or service not known" in err or "getaddrinfo failed" in err or "nodename nor servname" in err:
+            return {"reachable": False, "error_type": "dns_failure", "message": "DNS resolution failed"}
+        return {"reachable": False, "error_type": "unreachable", "message": str(e)[:120]}
+    except httpx.TooManyRedirects:
+        return {"reachable": False, "error_type": "redirect_failure", "message": "Too many redirects"}
+    except Exception as e:
+        err = str(e).lower()
+        if "ssl" in err or "certificate" in err:
+            return {"reachable": False, "error_type": "ssl_error", "message": str(e)[:120]}
+        return {"reachable": False, "error_type": "unreachable", "message": str(e)[:120]}
 
 
 @app.post("/api/runs", response_model=RunState)

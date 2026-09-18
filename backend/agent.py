@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -14,6 +15,7 @@ from .models import Event, Issue, RunCreate, RunState
 from .report import generate_report
 
 EventCallback = Callable[[Event], Awaitable[None]]
+logger = logging.getLogger("traceqa.agent")
 
 
 class AutonomousTester:
@@ -35,6 +37,7 @@ class AutonomousTester:
         browser = BrowserRunner(run_dir)
         self.run.status = "running"
         self.run.started_at = datetime.now(timezone.utc).isoformat()
+        logger.info("[run_created] run_id=%s goal=%r target=%s", self.run.id, self.request.goal, self.request.target_url)
         await self._log(
             "run",
             f"Autonomous test run started for goal: {self.request.goal}",
@@ -48,7 +51,9 @@ class AutonomousTester:
             successful_paths = 0
 
             for pass_no in range(1, total_passes + 1):
+                logger.info("[browser_launch] pass=%d target=%s", pass_no, self.request.target_url)
                 await browser.start(self.request.target_url)
+                logger.info("[target_navigation] pass=%d url=%s", pass_no, self.request.target_url)
                 await self._log("pass", f"Exploration pass {pass_no} of {total_passes} started", pass_no=pass_no)
                 pass_history: list[dict[str, Any]] = []
                 seen_signatures: set[str] = set()
@@ -59,6 +64,7 @@ class AutonomousTester:
                     obs = await browser.observe(step)
                     self.screenshots.append(obs.screenshot)
                     self.run.latest_screenshot = f"/artifacts/{self.run.id}/step_{step:03d}.png"
+                    logger.info("[observation_created] step=%d url=%s elements=%d", step, obs.url, len(obs.ui_map))
 
                     is_loop = obs.state_signature in seen_signatures
                     seen_signatures.add(obs.state_signature)
@@ -99,7 +105,10 @@ class AutonomousTester:
                         )
 
                     # 3. Model Decision via Central AI Provider Manager
-                    raw_decision, acting_provider = ai_provider_manager.decide_action(
+                    # Run in thread to avoid blocking async event loop during inference
+                    logger.info("[provider_selected] step=%d mode=%s", step, ai_provider_manager.mode)
+                    raw_decision, acting_provider = await asyncio.to_thread(
+                        ai_provider_manager.decide_action,
                         self.request.goal,
                         obs.screenshot,
                         obs.ui_map,
@@ -111,6 +120,7 @@ class AutonomousTester:
                     # 4. Action Validation & Safety Pipeline
                     is_valid, decision, rejection_reason = ActionValidator.validate(raw_decision, obs.ui_map)
                     if not is_valid:
+                        logger.warning("[action_validated] REJECTED step=%d reason=%s", step, rejection_reason)
                         await self._log(
                             "safety",
                             f"Action safety guard: {rejection_reason}",
@@ -122,6 +132,7 @@ class AutonomousTester:
                     rationale = decision.get("rationale", "")
                     decision["step"] = step
                     decision["provider"] = acting_provider
+                    logger.info("[action_generated] step=%d provider=%s action=%s element=%s valid=%s", step, acting_provider, action, decision.get('element_id'), is_valid)
 
                     await self._log(
                         "agent",
@@ -240,6 +251,7 @@ class AutonomousTester:
 
             # 7. Auditing Phase (WCAG Accessibility & Layout Verification)
             await self._log("audit", "Executing deep accessibility and layout heuristics audit")
+            logger.info("[evidence_captured] run_id=%s steps=%d", self.run.id, self.run.step_count)
             acc_data = await self._audit_with_fresh_browser(run_dir)
             acc_list = acc_data.get("accessibility", [])
             layout_list = acc_data.get("layout", [])
@@ -247,8 +259,9 @@ class AutonomousTester:
             heuristic_issues = build_heuristic_findings(self.trajectory, acc_list, layout_list)
             audit_seed = [x.model_dump() for x in heuristic_issues]
 
-            # Multimodal Audit Review via Central Provider Manager
-            ai_audit, audit_provider = ai_provider_manager.audit_run(
+            # Multimodal Audit Review via Central Provider Manager (non-blocking)
+            ai_audit, audit_provider = await asyncio.to_thread(
+                ai_provider_manager.audit_run,
                 self.request.goal, self.screenshots[-4:], self.trajectory, audit_seed
             )
             ai_issues = [
@@ -299,6 +312,7 @@ class AutonomousTester:
             self.run.report_url = f"/artifacts/{self.run.id}/report.html"
             self.run.status = "completed"
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
+            logger.info("[run_completed] run_id=%s issues=%d friction=%s wcag=%s", self.run.id, len(self.run.issues), self.run.metrics.get('friction_score'), self.run.metrics.get('wcag_grade'))
             await self._log(
                 "done",
                 f"Audit finished: {len(self.run.issues)} issues detected. Friction Score: {self.run.metrics.get('friction_score')}/100. WCAG Grade: {self.run.metrics.get('wcag_grade')}.",
@@ -311,6 +325,7 @@ class AutonomousTester:
             self.run.status = "failed"
             self.run.error = str(exc)
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
+            logger.error("[run_failed] run_id=%s error=%s", self.run.id, str(exc)[:200])
             await self._log("error", f"Run failed: {str(exc)}")
             try:
                 await browser.close()
