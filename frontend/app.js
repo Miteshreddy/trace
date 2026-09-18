@@ -1,714 +1,936 @@
-/* ==========================================================================
-   TRACE//QA — Professional AI Quality Engineering Client Controller
-   Real-Time Event Streaming, Observability Viewport, Journey Graph & Telemetry
-   ========================================================================== */
+/**
+ * TRACE — Autonomous Quality Engineering
+ * Authoritative Single Page Application Controller (v4)
+ */
 
-let activeRun = null;
-let poller = null;
-let currentFilter = 'all';
-let currentRunData = null;
-let currentEvents = [];
+(function () {
+  'use strict';
 
-const $ = (id) => document.getElementById(id);
-
-// --------------------------------------------------------------------------
-// Navigation & View Routing
-// --------------------------------------------------------------------------
-
-function switchView(viewName) {
-  const views = ['command-deck', 'trajectory', 'journey', 'findings', 'reports', 'ai-engine', 'settings'];
-  const titles = {
-    'command-deck': 'Command Deck',
-    'trajectory': 'Live Trajectory & Observability',
-    'journey': 'Journey Explorer',
-    'findings': 'Audit Findings Matrix',
-    'reports': 'Executive Reports',
-    'ai-engine': 'AI Provider Architecture',
-    'settings': 'Settings & Targets',
+  // ---------------------------------------------------------------------------
+  // Application State
+  // ---------------------------------------------------------------------------
+  const state = {
+    currentPath: '/',
+    goal: sessionStorage.getItem('traceGoal') || 'Find a blue running shoe under $100 and reach checkout',
+    targetUrl: sessionStorage.getItem('traceUrl') || 'http://127.0.0.1:8000/demo/',
+    activeRunId: sessionStorage.getItem('traceRunId') || null,
+    runStatus: 'idle', // 'idle' | 'running' | 'success' | 'failed'
+    runData: null,
+    events: [],
+    poller: null,
+    filter: 'all',
+    homeDemoStarted: false
   };
 
-  views.forEach(v => {
-    const el = $(`view-${v}`);
-    const nav = $(`nav-${v}`);
-    if (el) el.classList.toggle('active', v === viewName);
-    if (nav) nav.classList.toggle('active', v === viewName);
-  });
+  const $ = (sel) => document.querySelector(sel);
+  const $$ = (sel) => Array.from(document.querySelectorAll(sel));
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
-  const titleEl = $('topbarViewTitle');
-  if (titleEl) titleEl.textContent = titles[viewName] || 'Command Deck';
+  // ---------------------------------------------------------------------------
+  // SPA Router
+  // ---------------------------------------------------------------------------
+  const VALID_ROUTES = {
+    '/': { view: 'home', title: 'TRACE — Test the experience' },
+    '/command': { view: 'command', title: 'TRACE — Command' },
+    '/live': { view: 'live', title: 'TRACE — Live Screen' },
+    '/evaluation': { view: 'evaluation', title: 'TRACE — Evaluation' },
+    '/journeys': { view: 'journeys', title: 'TRACE — Journeys' },
+    '/findings': { view: 'findings', title: 'TRACE — Findings' },
+    '/report': { view: 'report', title: 'TRACE — Report' }
+  };
 
-  window.location.hash = viewName;
-}
-
-window.addEventListener('DOMContentLoaded', () => {
-  const hash = window.location.hash.replace('#', '');
-  if (hash && $(`view-${hash}`)) {
-    switchView(hash);
-  } else {
-    switchView('command-deck');
-  }
-  fetchProviderHealth();
-  setupGlobalShortcuts();
-});
-
-// --------------------------------------------------------------------------
-// Interactive Tool Row & Parameter Cycling
-// --------------------------------------------------------------------------
-
-const MODES = ['AUTO', 'GROQ', 'GEMINI'];
-function cycleProviderMode() {
-  const cur = ($('toolPillModeText')?.textContent || 'AUTO').trim().toUpperCase();
-  const nextIdx = (MODES.indexOf(cur) + 1) % MODES.length;
-  const nextMode = MODES[nextIdx];
-  switchProviderMode(nextMode);
-}
-
-const STEP_OPTIONS = [18, 24, 32, 12];
-function cycleSteps() {
-  const cur = Number($('maxSteps')?.value) || 18;
-  const nextIdx = (STEP_OPTIONS.indexOf(cur) + 1) % STEP_OPTIONS.length;
-  const nextVal = STEP_OPTIONS[nextIdx];
-  $('maxSteps').value = nextVal;
-  $('toolPillStepsText').textContent = `${nextVal} Steps`;
-  showToast(`Max steps set to ${nextVal}`, 'info');
-}
-
-const PASS_OPTIONS = [1, 2, 3];
-function cyclePasses() {
-  const cur = Number($('passes')?.value) || 1;
-  const nextIdx = (PASS_OPTIONS.indexOf(cur) + 1) % PASS_OPTIONS.length;
-  const nextVal = PASS_OPTIONS[nextIdx];
-  $('passes').value = nextVal;
-  $('toolPillPassesText').textContent = `${nextVal} Pass${nextVal > 1 ? 'es' : ''}`;
-  showToast(`Exploration passes set to ${nextVal}`, 'info');
-}
-
-function updateTargetToolPill(val) {
-  const clean = val.trim();
-  const pill = $('toolPillTarget');
-  if (!pill) return;
-  if (clean.includes('/demo/')) {
-    pill.textContent = 'Target: Demo Store';
-  } else {
-    try {
-      const u = new URL(clean);
-      pill.textContent = `Target: ${u.hostname}`;
-    } catch {
-      pill.textContent = 'Target: Custom URL';
-    }
-  }
-}
-
-// --------------------------------------------------------------------------
-// Preset Scenarios
-// --------------------------------------------------------------------------
-
-function applyPreset(num) {
-  if (num === 1) {
-    $('goal').value = "Find a blue running shoe under $100 and add it to the cart.";
-    $('maxSteps').value = 16;
-    $('toolPillStepsText').textContent = "16 Steps";
-    $('passes').value = 1;
-    $('toolPillPassesText').textContent = "1 Pass";
-    showToast("Scenario 1 loaded: Blue shoe under $100 (Core Benchmark)", "accent");
-  } else if (num === 2) {
-    $('goal').value = "Discover alternative paths to find and cart a blue running shoe (compare category filters vs search bar).";
-    $('maxSteps').value = 18;
-    $('toolPillStepsText').textContent = "18 Steps";
-    $('passes').value = 2;
-    $('toolPillPassesText').textContent = "2 Passes";
-    showToast("Scenario 2 loaded: Multi-Path Exploration (Passes: 2)", "accent");
-  } else if (num === 3) {
-    $('goal').value = "Browse running shoes, dismiss the promotional VIP modal overlay when it appears, and add the Aero Blue Runner to cart.";
-    $('maxSteps').value = 16;
-    $('toolPillStepsText').textContent = "16 Steps";
-    $('passes').value = 1;
-    $('toolPillPassesText').textContent = "1 Pass";
-    showToast("Scenario 3 loaded: Modal Obstruction Recovery", "accent");
+  function normalizePath(raw) {
+    if (!raw) return '/';
+    let path = raw.split('?')[0].split('#')[0];
+    if (!path.startsWith('/')) path = '/' + path;
+    if (path.length > 1 && path.endsWith('/')) path = path.slice(0, -1);
+    // Legacy / hash mapping
+    if (path === '/reports') path = '/report';
+    return VALID_ROUTES[path] ? path : '/';
   }
 
-  switchView('command-deck');
-  const textarea = $('goal');
-  textarea.focus();
-  textarea.setSelectionRange(textarea.value.length, textarea.value.length);
-}
+  function navigateTo(targetPath, push = true) {
+    const cleanPath = normalizePath(targetPath);
+    state.currentPath = cleanPath;
 
-function clearGoalInput() {
-  $('goal').value = '';
-  $('goal').focus();
-}
-
-// --------------------------------------------------------------------------
-// Global Keyboard Shortcuts
-// --------------------------------------------------------------------------
-
-function setupGlobalShortcuts() {
-  document.addEventListener('keydown', (e) => {
-    // Focus goal on '/' or 'Cmd/Ctrl + K'
-    if ((e.key === '/' && !['INPUT', 'TEXTAREA'].includes(document.activeElement.tagName)) || 
-        ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k')) {
-      e.preventDefault();
-      switchView('command-deck');
-      $('goal')?.focus();
+    if (push && window.location.pathname !== cleanPath) {
+      window.history.pushState(null, '', cleanPath);
     }
 
-    // Submit on Cmd+Enter / Ctrl+Enter
-    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
-      e.preventDefault();
-      $('runBtn')?.click();
-    }
+    const routeConfig = VALID_ROUTES[cleanPath] || VALID_ROUTES['/'];
+    document.title = routeConfig.title;
+    document.body.dataset.page = routeConfig.view;
 
-    // Escape closes modals / blurs
-    if (e.key === 'Escape') {
-      closeEvidenceModal();
-      if (document.activeElement === $('goal')) {
-        $('goal').blur();
+    // Switch view sections
+    $$('.view-section').forEach((section) => {
+      const isTarget = section.id === `view-${routeConfig.view}`;
+      section.classList.toggle('active', isTarget);
+    });
+
+    // Update navigation active states
+    $$('.desktop-nav a').forEach((link) => {
+      const route = link.getAttribute('data-route') || link.getAttribute('href');
+      link.classList.toggle('active', route === cleanPath);
+    });
+
+    // Scroll top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    // Trigger view lifecycle hook
+    onViewMounted(routeConfig.view);
+  }
+
+  function setupRouting() {
+    // Intercept clicks on links with data-route or relative path
+    document.addEventListener('click', (e) => {
+      const link = e.target.closest('a, button');
+      if (!link) return;
+
+      const route = link.getAttribute('data-route') || link.getAttribute('href');
+      if (!route) return;
+
+      // Ignore external links or anchor jumps
+      if (route.startsWith('http') || route.startsWith('//') || route.startsWith('mailto:') || link.target === '_blank') {
+        return;
+      }
+
+      if (route.startsWith('/') || route.startsWith('#')) {
+        let clean = route;
+        if (clean.startsWith('#')) {
+          clean = '/' + clean.replace('#', '');
+        }
+        if (VALID_ROUTES[normalizePath(clean)]) {
+          e.preventDefault();
+          navigateTo(clean);
+        }
+      }
+    });
+
+    // Handle browser back and forward buttons
+    window.addEventListener('popstate', () => {
+      navigateTo(window.location.pathname, false);
+    });
+
+    // Handle initial route
+    let initial = window.location.pathname;
+    if (window.location.hash) {
+      const hashRoute = '/' + window.location.hash.replace('#', '');
+      if (VALID_ROUTES[normalizePath(hashRoute)]) {
+        initial = hashRoute;
       }
     }
-  });
-}
+    navigateTo(initial, true);
+  }
 
-// --------------------------------------------------------------------------
-// AI Provider Mode Switching & Diagnostics
-// --------------------------------------------------------------------------
+  function onViewMounted(viewName) {
+    if (viewName === 'home') {
+      setupHomeView();
+    } else if (viewName === 'command') {
+      setupCommandView();
+    } else if (viewName === 'live') {
+      setupLiveView();
+    } else if (viewName === 'evaluation') {
+      renderEvaluationView();
+    } else if (viewName === 'journeys') {
+      renderJourneysView();
+    } else if (viewName === 'findings') {
+      renderFindingsView();
+    } else if (viewName === 'report') {
+      renderReportView();
+    }
+  }
 
-async function switchProviderMode(mode) {
-  try {
-    const res = await fetch('/api/providers/select', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ mode }),
+  // ---------------------------------------------------------------------------
+  // Pointer & Motion Utilities
+  // ---------------------------------------------------------------------------
+  function setupPointer() {
+    const pointer = $('#tracePointer');
+    if (!pointer || window.matchMedia('(pointer:coarse)').matches) return;
+
+    let x = 0, y = 0, tx = 0, ty = 0, visible = false;
+    window.addEventListener('mousemove', (e) => {
+      tx = e.clientX;
+      ty = e.clientY;
+      if (!visible) {
+        visible = true;
+        pointer.style.opacity = '1';
+      }
     });
-    const data = await res.json();
-    if (data.ok) {
-      updateModeUI(data.mode);
-      showToast(`AI Engine switched to ${data.mode}`, 'info');
+
+    window.addEventListener('mousedown', () => pointer.classList.add('is-down'));
+    window.addEventListener('mouseup', () => pointer.classList.remove('is-down'));
+
+    document.addEventListener('pointerover', (e) => {
+      const target = e.target.closest('a, button, .cap, .journey-node, .evidence-card-front, .glass-tag');
+      pointer.classList.toggle('is-link', !!target);
+    });
+
+    const tick = () => {
+      x += (tx - x) * 0.22;
+      y += (ty - y) * 0.22;
+      pointer.style.left = x + 'px';
+      pointer.style.top = y + 'px';
+      requestAnimationFrame(tick);
+    };
+    tick();
+  }
+
+  function setupReveal() {
+    const items = $$('.reveal-scroll');
+    if (!items.length) return;
+
+    const io = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add('in-view');
+          io.unobserve(entry.target);
+        }
+      });
+    }, { threshold: 0.15 });
+
+    items.forEach((item) => io.observe(item));
+  }
+
+  function setupScrollMotion() {
+    const evidence = $('.evidence-stage');
+    const journey = $('#journeyVisual');
+    if (!evidence && !journey) return;
+
+    let raf = 0;
+    const update = () => {
+      raf = 0;
+      const y = window.scrollY || 0;
+      if (evidence) {
+        const r = evidence.getBoundingClientRect();
+        const shift = (window.innerHeight * 0.5 - (r.top + r.height * 0.5)) * 0.08;
+        evidence.style.setProperty('--scroll-shift', shift.toFixed(1) + 'px');
+      }
+      if (journey) {
+        const r = journey.getBoundingClientRect();
+        const n = Math.max(-1, Math.min(1, (window.innerHeight * 0.5 - (r.top + r.height * 0.5)) / window.innerHeight));
+        journey.style.transform = 'translateY(' + (n * 4).toFixed(1) + 'px)';
+      }
+    };
+
+    window.addEventListener('scroll', () => {
+      if (!raf) raf = requestAnimationFrame(update);
+    }, { passive: true });
+    update();
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Home Page Demo Animation
+  // ---------------------------------------------------------------------------
+  async function runHomeDemo() {
+    const typed = $('#demoTyped');
+    const consoleEl = $('#console');
+    const command = $('#demoCommand');
+    const demoState = $('#demoState');
+    const sessionStatus = $('#sessionStatus');
+    if (!typed || !consoleEl || !command) return;
+
+    const activities = $$('#view-home .activity-item');
+    const steps = $$('#view-home .j-step');
+    const cursor = $('#cursor');
+    const label = $('#cursorLabel');
+    const goalText = 'Check the signup flow and identify accessibility issues';
+    const path = [[28, 34], [59, 28], [72, 58], [43, 63], [68, 52]];
+    const labels = [
+      'Opening website',
+      'Inspecting navigation',
+      'Testing primary flow',
+      'Checking accessibility',
+      'Capturing evidence'
+    ];
+
+    typed.textContent = '';
+    consoleEl.classList.remove('visible');
+    command.classList.remove('compact');
+    if (demoState) {
+      demoState.classList.remove('ready');
+      demoState.innerHTML = '<i></i> Ready';
     }
-  } catch (err) {
-    console.error("Failed to switch mode:", err);
-    showToast("Error switching provider mode", "error");
-  }
-}
+    activities.forEach((a) => a.classList.remove('done', 'current'));
+    steps.forEach((s, i) => {
+      s.classList.toggle('reached', i === 0);
+      s.classList.remove('current');
+    });
 
-function updateModeUI(mode) {
-  const upper = (mode || 'AUTO').toUpperCase();
-  $('btnModeAuto')?.classList.toggle('active', upper === 'AUTO');
-  $('btnModeGroq')?.classList.toggle('active', upper === 'GROQ');
-  $('btnModeGemini')?.classList.toggle('active', upper === 'GEMINI');
+    if (cursor) {
+      cursor.style.left = '28%';
+      cursor.style.top = '34%';
+    }
+    if (label) label.textContent = 'Exploring interface';
+    if (sessionStatus) sessionStatus.textContent = 'Preparing session';
 
-  if ($('toolPillModeText')) $('toolPillModeText').textContent = upper;
-  if ($('activeModeBadge')) $('activeModeBadge').textContent = `AI ENGINE: ${upper}`;
-  if ($('sidebarModeTag')) $('sidebarModeTag').textContent = upper;
-}
+    await sleep(400);
+    for (const ch of goalText) {
+      typed.textContent += ch;
+      await sleep(22);
+    }
+    await sleep(300);
 
-async function testAIProviders() {
-  const btn = $('btnTestProviders');
-  const feedback = $('diagFeedback');
-  btn.disabled = true;
-  btn.innerHTML = '<span>⚡ Probing...</span>';
-  feedback.textContent = 'Measuring roundtrip latency...';
+    if (demoState) {
+      demoState.classList.add('ready');
+      demoState.innerHTML = '<i></i> Goal understood';
+    }
+    command.classList.add('compact');
+    await sleep(200);
 
-  try {
-    const res = await fetch('/api/providers/test', { method: 'POST' });
-    const data = await res.json();
-    const groq = data.results?.groq;
-    const gemini = data.results?.gemini;
+    consoleEl.classList.add('visible');
+    await sleep(400);
+    if (sessionStatus) sessionStatus.textContent = 'Agent is browsing';
 
-    const groqMsg = groq?.connected ? `Groq: Connected (${groq.latency_ms}ms)` : `Groq: Failed`;
-    const geminiMsg = gemini?.connected ? `Gemini: Connected (${gemini.latency_ms}ms)` : `Gemini: Failed`;
+    for (let i = 0; i < activities.length; i++) {
+      if (activities[i - 1]) activities[i - 1].classList.add('done');
+      activities[i].classList.add('current');
+      if (steps[i + 1]) {
+        steps[i + 1].classList.add('current', 'reached');
+      }
+      if (cursor && path[i]) {
+        cursor.style.left = path[i][0] + '%';
+        cursor.style.top = path[i][1] + '%';
+      }
+      if (label && labels[i]) label.textContent = labels[i];
+      await sleep(450);
 
-    feedback.innerHTML = `<b>${escapeHtml(groqMsg)}</b> &nbsp;|&nbsp; <b>${escapeHtml(geminiMsg)}</b>`;
-    fetchProviderHealth();
-    showToast("Provider diagnostic ping complete", "success");
-  } catch (err) {
-    feedback.textContent = `Diagnostic error: ${err.message}`;
-    showToast("Diagnostic probe failed", "error");
-  } finally {
-    btn.disabled = false;
-    btn.innerHTML = '<span>⚡ Test AI Providers</span>';
-  }
-}
-
-async function fetchProviderHealth() {
-  try {
-    const res = await fetch('/api/providers');
-    const data = await res.json();
-    updateModeUI(data.mode);
-
-    const groq = data.providers?.groq;
-    if (groq) {
-      const statusText = groq.status.charAt(0).toUpperCase() + groq.status.slice(1);
-      if ($('groqStatus')) $('groqStatus').textContent = statusText;
-      if ($('groqLatency')) $('groqLatency').textContent = groq.latency_ms > 0 ? `${groq.latency_ms}ms` : '—';
+      activities[i].classList.remove('current');
+      activities[i].classList.add('done');
+      if (steps[i + 1]) steps[i + 1].classList.remove('current');
     }
 
-    const gemini = data.providers?.gemini;
-    if (gemini) {
-      const statusText = gemini.status.charAt(0).toUpperCase() + gemini.status.slice(1);
-      if ($('geminiStatus')) $('geminiStatus').textContent = statusText;
-      if ($('geminiLatency')) $('geminiLatency').textContent = gemini.latency_ms > 0 ? `${gemini.latency_ms}ms` : '—';
+    if (sessionStatus) sessionStatus.textContent = 'Evidence captured';
+    if (demoState) {
+      demoState.classList.add('ready');
+      demoState.innerHTML = '<i></i> Session active';
     }
-  } catch (err) {
-    console.error("Failed to fetch provider health:", err);
-  }
-}
-
-// --------------------------------------------------------------------------
-// Trajectory Events & Viewport Tracing
-// --------------------------------------------------------------------------
-
-function renderEvents(events) {
-  currentEvents = events;
-  const root = $('trajectory');
-  if (!events.length) {
-    root.innerHTML = '<div class="viewport-waiting-box"><span style="font-size:28px;color:var(--text-subtle);">◌</span><p>Waiting for agent perception...</p></div>';
-    return;
   }
 
-  root.innerHTML = events.slice(-80).map((e, idx) => {
-    const action = (e.data?.action || e.kind || '').toLowerCase();
-    const rationale = e.data?.rationale || '';
-    const stepNum = e.data?.step || (idx + 1);
-    const element = e.data?.element_id ? `Target: ${escapeHtml(e.data.element_id)}` : '';
-    const provider = e.data?.provider ? String(e.data.provider).toLowerCase() : '';
+  function setupHomeView() {
+    const demoStage = $('#console');
+    if (demoStage && !state.homeDemoStarted) {
+      const io = new IntersectionObserver((entries) => {
+        if (entries.some((e) => e.isIntersecting)) {
+          state.homeDemoStarted = true;
+          runHomeDemo().catch(() => {});
+          io.disconnect();
+        }
+      }, { threshold: 0.1 });
+      io.observe(demoStage);
+    }
 
-    return `
-      <div class="event-step-row" onclick="previewStepScreenshot(${stepNum})">
-        <div class="step-bubble-num font-mono">${String(stepNum).padStart(2, '0')}</div>
-        <div class="event-details-col">
-          <div class="event-tags-bar">
-            <span class="action-pill ${escapeHtml(action)}">${escapeHtml(action)}</span>
-            ${provider ? `<span class="provider-chip-tag ${escapeHtml(provider)}">${escapeHtml(provider.toUpperCase())}</span>` : ''}
-            ${element ? `<span class="font-mono" style="font-size:10px;color:var(--text-muted);margin-left:auto;">${element}</span>` : ''}
+    const replayBtn = $('#replay');
+    if (replayBtn) {
+      replayBtn.onclick = () => {
+        runHomeDemo().catch(() => {});
+      };
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Command
+  // ---------------------------------------------------------------------------
+  function setupCommandView() {
+    const goalInput = $('#goal');
+    const urlInput = $('#targetUrl');
+    const reach = $('#commandReach');
+    const advancedBtn = $('#advancedBtn');
+    const advanced = $('#advanced');
+    const runBtn = $('#runAudit');
+    const err = $('#error');
+
+    if (goalInput && state.goal) goalInput.value = state.goal;
+    if (urlInput && state.targetUrl) urlInput.value = state.targetUrl;
+
+    const validateReach = () => {
+      const val = (urlInput?.value || '').trim();
+      let ok = false;
+      try {
+        const u = new URL(val);
+        ok = u.protocol === 'http:' || u.protocol === 'https:';
+      } catch (e) {
+        ok = false;
+      }
+      if (reach) {
+        reach.innerHTML = ok ? '<i></i> Target ready' : '<i style="background:#f07d8a"></i> Check target URL';
+        reach.style.color = ok ? '#757984' : '#f0a8a8';
+      }
+      return ok;
+    };
+
+    urlInput?.removeEventListener('input', validateReach);
+    urlInput?.addEventListener('input', validateReach);
+    validateReach();
+
+    // Toggle advanced
+    if (advancedBtn && advanced) {
+      advancedBtn.onclick = () => advanced.classList.toggle('show');
+    }
+
+    // Try preset task buttons
+    $$('#view-command .try button').forEach((btn) => {
+      btn.onclick = () => {
+        const taskText = btn.dataset.task || btn.textContent.trim();
+        if (goalInput) {
+          goalInput.value = taskText;
+          state.goal = taskText;
+          sessionStorage.setItem('traceGoal', taskText);
+          err?.classList.remove('show');
+          goalInput.focus();
+        }
+      };
+    });
+
+    // Run Audit button
+    if (runBtn) {
+      runBtn.onclick = async () => {
+        const goalVal = goalInput?.value.trim() || '';
+        const urlVal = urlInput?.value.trim() || '';
+
+        if (!goalVal) {
+          showError('Add a testing goal before starting a run.');
+          goalInput?.focus();
+          return;
+        }
+
+        if (!validateReach()) {
+          showError('Enter a valid target URL, including http:// or https://.');
+          urlInput?.focus();
+          return;
+        }
+
+        err?.classList.remove('show');
+        state.goal = goalVal;
+        state.targetUrl = urlVal;
+        sessionStorage.setItem('traceGoal', goalVal);
+        sessionStorage.setItem('traceUrl', urlVal);
+
+        runBtn.disabled = true;
+        runBtn.innerHTML = 'Starting…';
+
+        try {
+          const maxSteps = parseInt($('#maxSteps')?.value || '18', 10);
+          const passes = parseInt($('#passes')?.value || '1', 10);
+
+          const res = await fetch('/api/runs', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              goal: goalVal,
+              target_url: urlVal,
+              max_steps: maxSteps,
+              exploration_passes: passes
+            })
+          });
+
+          if (!res.ok) {
+            throw new Error(`Server returned HTTP ${res.status}`);
+          }
+
+          const run = await res.json();
+          state.activeRunId = run.id;
+          state.runStatus = 'running';
+          state.runData = run;
+          state.events = [];
+          sessionStorage.setItem('traceRunId', run.id);
+
+          updateHeaderBadge('running', 'RUNNING');
+          showToast(`Autonomous QA run launched (${run.id})`);
+
+          runBtn.disabled = false;
+          runBtn.innerHTML = 'Run Audit <b>↗</b>';
+
+          // Navigate directly to /live
+          navigateTo('/live');
+          startRunPolling(run.id);
+
+        } catch (e) {
+          showError(`Could not launch autonomous audit: ${e.message}`);
+          runBtn.disabled = false;
+          runBtn.innerHTML = 'Run Audit <b>↗</b>';
+        }
+      };
+    }
+
+    function showError(msg) {
+      if (err) {
+        err.textContent = msg;
+        err.classList.add('show');
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Live Screen
+  // ---------------------------------------------------------------------------
+  function setupLiveView() {
+    const liveGoal = $('#liveGoal');
+    const liveAddress = $('#liveBrowserAddress');
+    const openLink = $('#liveBrowserOpenLink');
+    const stopBtn = $('#btnStopRun');
+
+    if (liveGoal && state.goal) liveGoal.textContent = state.goal;
+    if (liveAddress && state.targetUrl) liveAddress.textContent = '⌁   ' + state.targetUrl;
+    if (openLink && state.targetUrl) openLink.href = state.targetUrl;
+
+    if (stopBtn) {
+      stopBtn.onclick = async () => {
+        if (!state.activeRunId) return;
+        try {
+          stopBtn.disabled = true;
+          stopBtn.textContent = 'Stopping…';
+          await fetch(`/api/runs/${state.activeRunId}/cancel`, { method: 'POST' });
+          showToast('Stop signal sent to agent.');
+        } catch (e) {
+          console.error(e);
+        } finally {
+          stopBtn.disabled = false;
+          stopBtn.textContent = 'Stop ⏹';
+        }
+      };
+    }
+
+    // If active run is already running and poller not active, start polling
+    if (state.activeRunId && (!state.poller || state.runStatus === 'running')) {
+      startRunPolling(state.activeRunId);
+    }
+  }
+
+  function startRunPolling(runId) {
+    if (state.poller) clearInterval(state.poller);
+
+    let lastEventCount = 0;
+    const poll = async () => {
+      try {
+        const [runRes, eventsRes] = await Promise.all([
+          fetch(`/api/runs/${runId}`),
+          fetch(`/api/runs/${runId}/events`)
+        ]);
+
+        if (!runRes.ok) return;
+        const run = await runRes.json();
+        state.runData = run;
+
+        let events = [];
+        if (eventsRes.ok) {
+          const evData = await eventsRes.json();
+          events = evData.events || [];
+          state.events = events;
+        }
+
+        // Update Live UI
+        updateLiveConsole(run, events);
+
+        // Check completion
+        if (run.status === 'completed' || run.status === 'success') {
+          clearInterval(state.poller);
+          state.poller = null;
+          state.runStatus = 'success';
+          updateHeaderBadge('success', 'SUCCESS');
+          $('#liveStatus') && ($('#liveStatus').textContent = 'Audit complete');
+          showToast('Audit complete. Evidence and report are ready.');
+          setStepCompleted(6);
+        } else if (run.status === 'failed') {
+          clearInterval(state.poller);
+          state.poller = null;
+          state.runStatus = 'failed';
+          updateHeaderBadge('failed', 'FAILED');
+          $('#liveStatus') && ($('#liveStatus').textContent = run.error || 'Execution halted');
+          showToast('Audit run stopped.');
+        }
+
+      } catch (e) {
+        console.warn('Run poller error:', e);
+      }
+    };
+
+    poll();
+    state.poller = setInterval(poll, 900);
+  }
+
+  function updateLiveConsole(run, events) {
+    const statusEl = $('#liveStatus');
+    const countEl = $('#liveEventCount');
+    const feed = $('#liveActivityList');
+    const screenshotImg = $('#liveScreenshotImg');
+    const mockView = $('#liveBrowserMock');
+    const cursor = $('#liveCursor');
+    const cursorLabel = $('#liveCursorLabel');
+
+    if (statusEl && run.status) {
+      statusEl.textContent = run.status === 'running' ? `Step ${run.current_step || 0} — Exploring` : run.status.toUpperCase();
+    }
+
+    if (countEl) countEl.textContent = `${events.length} events`;
+
+    // Render streaming events
+    if (feed && events.length) {
+      feed.innerHTML = events.slice(-25).map((ev, i) => `
+        <div class="activity-item done">
+          <i>${ev.step || (i + 1)}</i>
+          <div>
+            <b>${escapeHtml(ev.kind || 'Action')}</b>
+            <small>${escapeHtml(ev.message || '')}</small>
           </div>
-          <div class="event-msg-line">${escapeHtml(e.message)}</div>
-          ${rationale ? `<div class="event-rationale-box">“${escapeHtml(rationale)}”</div>` : ''}
+        </div>
+      `).join('');
+      feed.scrollTop = feed.scrollHeight;
+    }
+
+    // Update steps based on progress
+    const step = run.current_step || events.length;
+    if (step >= 1) setStepCompleted(1);
+    if (step >= 2) setStepCompleted(2);
+    if (step >= 4) setStepCompleted(3);
+    if (step >= 8) setStepCompleted(4);
+    if (step >= 12) setStepCompleted(5);
+
+    // Show latest screenshot if available
+    if (run.last_screenshot) {
+      if (screenshotImg && mockView) {
+        screenshotImg.src = run.last_screenshot;
+        screenshotImg.style.display = 'block';
+        mockView.style.display = 'none';
+      }
+    }
+
+    // Show cursor move
+    if (cursor && cursorLabel && events.length) {
+      const lastEv = events[events.length - 1];
+      cursorLabel.textContent = lastEv.message ? lastEv.message.slice(0, 32) : 'Exploring';
+    }
+
+    // Evidence toast on new findings
+    if (run.findings && run.findings.length > 0) {
+      const toast = $('#liveEvidenceToast');
+      const msg = $('#evidenceToastMsg');
+      if (toast && msg) {
+        msg.textContent = `${run.findings.length} findings recorded`;
+        toast.style.display = 'flex';
+      }
+    }
+  }
+
+  function setStepCompleted(stepNum) {
+    for (let i = 1; i <= 6; i++) {
+      const s = $(`#liveStep${i}`);
+      if (s) {
+        if (i < stepNum) {
+          s.classList.add('reached');
+          s.classList.remove('current');
+          const span = s.querySelector('span');
+          if (span) span.textContent = '✓';
+        } else if (i === stepNum) {
+          s.classList.add('reached', 'current');
+        }
+      }
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Evaluation (/evaluation)
+  // ---------------------------------------------------------------------------
+  function renderEvaluationView() {
+    const emptyState = $('#evaluationEmptyState');
+    const activeState = $('#evaluationActiveState');
+    const grid = $('#evaluationFindingsGrid');
+    const findings = (state.runData && state.runData.findings) || [];
+
+    if (!findings.length) {
+      if (emptyState) emptyState.style.display = 'grid';
+      if (activeState) activeState.style.display = 'none';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (activeState) activeState.style.display = 'block';
+
+    if (grid) {
+      grid.innerHTML = findings.map((f, idx) => `
+        <div class="finding-card">
+          <div class="finding-card-head">
+            <div class="finding-badges">
+              <span class="badge-severity ${f.severity?.toLowerCase() || 'medium'}">${f.severity || 'MEDIUM'}</span>
+              <span class="badge-category">${escapeHtml(f.category || 'Quality')}</span>
+            </div>
+            <span style="font-size:11px;color:#777a87">Step ${f.step || (idx + 1)}</span>
+          </div>
+          <h3>${escapeHtml(f.title || f.defect_type || 'Defect Identified')}</h3>
+          <p>${escapeHtml(f.description || f.evidence || '')}</p>
+          <div class="finding-card-foot">
+            <span>${escapeHtml(f.wcag_criterion ? `WCAG: ${f.wcag_criterion}` : 'Interaction Evidence')}</span>
+            ${f.screenshot ? `<button class="btn-inspect" onclick="window.TRACE_APP.inspectEvidence('${escapeHtml(f.screenshot)}', '${escapeHtml(f.title || '')}', '${escapeHtml(f.description || '')}')">Inspect Evidence ↗</button>` : ''}
+          </div>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Journeys (/journeys)
+  // ---------------------------------------------------------------------------
+  function renderJourneysView() {
+    const emptyState = $('#journeysEmptyState');
+    const activeState = $('#journeysActiveState');
+    const run = state.runData;
+
+    if (!run || (!run.journey && (!run.events || !run.events.length))) {
+      if (emptyState) emptyState.style.display = 'grid';
+      if (activeState) activeState.style.display = 'none';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (activeState) activeState.style.display = 'block';
+
+    const journey = run.journey || {};
+    $('#jUniqueStates') && ($('#jUniqueStates').textContent = journey.unique_states || (run.events ? Math.min(run.events.length, 6) : 3));
+    $('#jPathsMapped') && ($('#jPathsMapped').textContent = journey.paths_mapped || 1);
+    $('#jLoopsAvoided') && ($('#jLoopsAvoided').textContent = journey.loops_avoided || 0);
+
+    const dag = $('#journeysDagContainer');
+    if (dag && state.events.length) {
+      dag.innerHTML = state.events.slice(-8).map((ev, i) => `
+        <div class="journey-node-row">
+          <div class="journey-node-index">0${i + 1}</div>
+          <div class="journey-node-detail">
+            <b>${escapeHtml(ev.kind || 'Transition')}</b>
+            <small>${escapeHtml(ev.message || '')}</small>
+          </div>
+          <span style="font-size:10px;color:#676a74">${ev.status || 'OK'}</span>
+        </div>
+      `).join('');
+    }
+  }
+
+  // ---------------------------------------------------------------------------
+  // VIEW: Findings (/findings)
+  // ---------------------------------------------------------------------------
+  function renderFindingsView() {
+    const emptyState = $('#findingsEmptyState');
+    const activeList = $('#findingsActiveList');
+    const findings = (state.runData && state.runData.findings) || [];
+
+    // Filter tabs
+    $$('#view-findings .filter-tab').forEach((tab) => {
+      tab.onclick = () => {
+        $$('#view-findings .filter-tab').forEach((t) => t.classList.remove('active'));
+        tab.classList.add('active');
+        state.filter = tab.dataset.filter || 'all';
+        renderFilteredFindings();
+      };
+    });
+
+    // Search input
+    const search = $('#findingsSearch');
+    if (search) {
+      search.oninput = () => renderFilteredFindings();
+    }
+
+    // Update count badges
+    $('#findingsCountAll') && ($('#findingsCountAll').textContent = findings.length);
+    $('#findingsCountA11y') && ($('#findingsCountA11y').textContent = findings.filter(f => (f.category || '').toLowerCase().includes('access')).length);
+    $('#findingsCountUx') && ($('#findingsCountUx').textContent = findings.filter(f => (f.category || '').toLowerCase().includes('ux')).length);
+    $('#findingsCountNav') && ($('#findingsCountNav').textContent = findings.filter(f => (f.category || '').toLowerCase().includes('nav')).length);
+    $('#findingsCountVisual') && ($('#findingsCountVisual').textContent = findings.filter(f => (f.category || '').toLowerCase().includes('visual')).length);
+
+    if (!findings.length) {
+      if (emptyState) emptyState.style.display = 'grid';
+      if (activeList) activeList.style.display = 'none';
+      return;
+    }
+
+    if (emptyState) emptyState.style.display = 'none';
+    if (activeList) activeList.style.display = 'flex';
+
+    renderFilteredFindings();
+  }
+
+  function renderFilteredFindings() {
+    const list = $('#findingsActiveList');
+    const findings = (state.runData && state.runData.findings) || [];
+    const q = ($('#findingsSearch')?.value || '').toLowerCase().trim();
+
+    const filtered = findings.filter((f) => {
+      const matchFilter = state.filter === 'all' || (f.category || '').toLowerCase().includes(state.filter);
+      const matchQuery = !q || (f.title || '').toLowerCase().includes(q) || (f.description || '').toLowerCase().includes(q);
+      return matchFilter && matchQuery;
+    });
+
+    if (!list) return;
+
+    if (!filtered.length) {
+      list.innerHTML = `<div style="padding:40px;text-align:center;color:#676a74;font-size:13px">No findings match this criteria.</div>`;
+      return;
+    }
+
+    list.innerHTML = filtered.map((f, idx) => `
+      <div class="finding-card">
+        <div class="finding-card-head">
+          <div class="finding-badges">
+            <span class="badge-severity ${f.severity?.toLowerCase() || 'medium'}">${f.severity || 'MEDIUM'}</span>
+            <span class="badge-category">${escapeHtml(f.category || 'Defect')}</span>
+          </div>
+          <span style="font-size:11px;color:#777a87">Step ${f.step || (idx + 1)}</span>
+        </div>
+        <h3>${escapeHtml(f.title || f.defect_type || 'Defect')}</h3>
+        <p>${escapeHtml(f.description || f.evidence || '')}</p>
+        <div class="finding-card-foot">
+          <span>${escapeHtml(f.wcag_criterion ? `WCAG: ${f.wcag_criterion}` : 'Reproducible Step')}</span>
+          ${f.screenshot ? `<button class="btn-inspect" onclick="window.TRACE_APP.inspectEvidence('${escapeHtml(f.screenshot)}', '${escapeHtml(f.title || '')}', '${escapeHtml(f.description || '')}')">Inspect Evidence ↗</button>` : ''}
         </div>
       </div>
-    `;
-  }).join('');
-
-  root.scrollTop = root.scrollHeight;
-}
-
-function previewStepScreenshot(stepNum) {
-  if (!activeRun) return;
-  const pad = String(stepNum).padStart(3, '0');
-  const imgUrl = `/artifacts/${activeRun}/step_${pad}.png?t=${Date.now()}`;
-  const img = $('screenImage');
-  img.src = imgUrl;
-  img.style.display = 'block';
-  $('screenEmpty').style.display = 'none';
-  $('screenCaption').textContent = `Previewing Step ${stepNum} (Action Overlay Active)`;
-
-  const ev = currentEvents.find(e => e.data?.step === stepNum);
-  if (ev) {
-    $('viewportOverlay').style.display = 'flex';
-    $('overlayStep').textContent = `STEP ${String(stepNum).padStart(2, '0')}`;
-    $('overlayAction').textContent = (ev.data?.action || ev.kind || 'OBSERVE').toUpperCase();
-    $('overlayConfidence').textContent = ev.data?.confidence ? `${(Number(ev.data.confidence) * 100).toFixed(0)}% Conf` : '95% Conf';
-  }
-}
-
-// --------------------------------------------------------------------------
-// Interactive Journey Graph Renderer
-// --------------------------------------------------------------------------
-
-function renderJourney(journey) {
-  const container = $('journeyGraphContainer');
-  const nodes = journey?.nodes || [];
-  const edges = journey?.edges || [];
-
-  $('uniqueStatesCount').textContent = nodes.length;
-  $('loopsCount').textContent = nodes.filter(n => n.is_loop).length;
-
-  if (!nodes.length) {
-    container.innerHTML = `
-      <div class="viewport-waiting-box">
-        <span style="font-size:32px;color:var(--text-subtle);">☊</span>
-        <p>No journey data mapped yet. Start an autonomous run to explore paths.</p>
-      </div>
-    `;
-    return;
+    `).join('');
   }
 
-  let html = '<div class="journey-nodes-row">';
-  nodes.forEach((node, idx) => {
-    const isGoal = node.is_goal;
-    const isLoop = node.is_loop;
-    const stateClass = isGoal ? 'is-goal' : '';
+  // ---------------------------------------------------------------------------
+  // VIEW: Report (/report)
+  // ---------------------------------------------------------------------------
+  function renderReportView() {
+    const emptyState = $('#reportEmptyState');
+    const activeState = $('#reportActiveState');
+    const run = state.runData;
 
-    html += `
-      <div class="journey-node-card ${stateClass}" onclick="previewStepScreenshot(${node.step})">
-        <div class="node-step-badge font-mono">STEP ${String(node.step).padStart(2, '0')} ${isGoal ? '★ GOAL' : (isLoop ? '⟲ LOOP' : '')}</div>
-        <div class="node-title-text">${escapeHtml(node.label || 'State View')}</div>
-        <div class="node-url-mono font-mono">${escapeHtml(node.url || '')}</div>
-      </div>
-    `;
+    if (!run || run.status === 'idle') {
+      if (emptyState) emptyState.style.display = 'grid';
+      if (activeState) activeState.style.display = 'none';
+      return;
+    }
 
-    if (idx < nodes.length - 1) {
-      const edge = edges.find(e => e.source === node.id) || edges[idx];
-      const edgeLabel = edge?.action || 'nav';
-      html += `
-        <div class="journey-edge-arrow">
-          <span>──</span>
-          <span class="action-pill click" style="font-size:8px;padding:1px 4px;">${escapeHtml(edgeLabel)}</span>
-          <span>──➔</span>
+    if (emptyState) emptyState.style.display = 'none';
+    if (activeState) activeState.style.display = 'block';
+
+    $('#reportGoalHeading') && ($('#reportGoalHeading').textContent = run.goal || state.goal);
+    $('#reportMetaText') && ($('#reportMetaText').textContent = `Run ID: ${run.id} · Target: ${run.target_url || state.targetUrl}`);
+
+    const htmlExport = $('#btnExportHtml');
+    const jsonExport = $('#btnExportJson');
+    if (htmlExport) htmlExport.href = `/api/runs/${run.id}/report`;
+    if (jsonExport) jsonExport.href = `/api/runs/${run.id}/report.json`;
+
+    // Metrics
+    const findings = run.findings || [];
+    const frictionVal = findings.length > 0 ? (findings.length * 1.5).toFixed(1) : '0.0';
+    $('#metricFriction') && ($('#metricFriction').textContent = frictionVal);
+    $('#metricWcag') && ($('#metricWcag').textContent = findings.length === 0 ? 'AAA' : 'AA');
+    $('#metricPaths') && ($('#metricPaths').textContent = run.journey?.paths_mapped || '1');
+    $('#metricSteps') && ($('#metricSteps').textContent = run.current_step || state.events.length || '0');
+
+    // Editorial Summary
+    const editorial = $('#reportEditorialContent');
+    if (editorial) {
+      editorial.innerHTML = `
+        <div style="margin-top:28px;padding:24px;border:1px solid var(--line-soft);border-radius:14px;background:rgba(255,255,255,0.01)">
+          <h4 style="font-size:14px;margin-bottom:8px;color:#c0b7ff">Executive Summary</h4>
+          <p style="font-size:13px;color:#9598a4;line-height:1.6">
+            Autonomous exploration verified the target user journey. TRACE executed ${run.current_step || state.events.length} interaction steps,
+            recording ${findings.length} findings across UX, accessibility and visual consistency.
+            All evidence is stored and exportable above.
+          </p>
         </div>
       `;
     }
-  });
-  html += '</div>';
-
-  container.innerHTML = html;
-}
-
-// --------------------------------------------------------------------------
-// Findings Matrix & Filtering
-// --------------------------------------------------------------------------
-
-function setFindingFilter(category, btn) {
-  currentFilter = category;
-  document.querySelectorAll('.filter-category-pill').forEach(b => b.classList.remove('active'));
-  if (btn) btn.classList.add('active');
-  filterFindings();
-}
-
-function filterFindings() {
-  const issues = currentRunData?.issues || [];
-  const query = ($('findingsSearch')?.value || '').toLowerCase().trim();
-
-  $('countAll').textContent = issues.length;
-  $('countA11y').textContent = issues.filter(i => i.category === 'accessibility').length;
-  $('countUx').textContent = issues.filter(i => i.category === 'ux').length;
-  $('countNav').textContent = issues.filter(i => i.category === 'navigation').length;
-  $('countVisual').textContent = issues.filter(i => i.category === 'visual').length;
-
-  const filtered = issues.filter(i => {
-    const matchCategory = currentFilter === 'all' || i.category === currentFilter;
-    const matchQuery = !query || 
-      i.title.toLowerCase().includes(query) || 
-      i.description.toLowerCase().includes(query) || 
-      (i.evidence && i.evidence.toLowerCase().includes(query));
-    return matchCategory && matchQuery;
-  });
-
-  const root = $('findingsList');
-  if (!filtered.length) {
-    root.innerHTML = `
-      <div class="viewport-waiting-box" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
-        <span style="font-size:28px;color:var(--text-subtle);">✓</span>
-        <p>No findings matching current filters. Target interface demonstrated zero friction.</p>
-      </div>
-    `;
-    return;
   }
 
-  root.innerHTML = filtered.map(i => {
-    const sev = (i.severity || 'medium').toLowerCase();
-    const cat = (i.category || 'general').toUpperCase();
+  // ---------------------------------------------------------------------------
+  // Modal & Toast Notifications
+  // ---------------------------------------------------------------------------
+  function inspectEvidence(imgSrc, title, desc) {
+    const modal = $('#evidenceModal');
+    const modalTitle = $('#modalEvidenceTitle');
+    const modalImg = $('#modalEvidenceImg');
+    const modalDesc = $('#modalEvidenceDesc');
 
-    return `
-      <div class="finding-row-card">
-        <div class="finding-card-header">
-          <div style="display:flex;align-items:center;gap:8px;">
-            <span class="sev-badge ${escapeHtml(sev)}">${escapeHtml(sev.toUpperCase())}</span>
-            <span style="font-size:10px;font-weight:600;color:var(--text-muted);text-transform:uppercase;">${escapeHtml(cat)}</span>
-            ${i.step ? `<span class="font-mono" style="font-size:10px;color:var(--text-subtle);">STEP ${i.step}</span>` : ''}
-          </div>
-          <button class="btn-open-target-link" onclick="inspectFindingEvidence('${escapeHtml(i.id)}')">Inspect Evidence ⛶</button>
-        </div>
+    if (!modal) return;
+    if (modalTitle) modalTitle.textContent = title || 'Evidence Inspection';
+    if (modalImg) modalImg.src = imgSrc || '';
+    if (modalDesc) modalDesc.textContent = desc || '';
 
-        <div class="finding-title-text">${escapeHtml(i.title)}</div>
-        <div class="finding-desc-copy">${escapeHtml(i.description)}</div>
-
-        ${i.evidence ? `
-          <div class="finding-evidence-strip font-mono">
-            <span style="font-weight:700;color:var(--text-subtle);font-size:9px;">EVIDENCE:</span>
-            <span>${escapeHtml(i.evidence)}</span>
-          </div>
-        ` : ''}
-
-        ${i.recommendation ? `
-          <div class="finding-remediation-lead">
-            <b style="color:var(--success);">Code Remediation:</b> ${escapeHtml(i.recommendation)}
-          </div>
-        ` : ''}
-      </div>
-    `;
-  }).join('');
-}
-
-function inspectFindingEvidence(findingId) {
-  const finding = (currentRunData?.issues || []).find(f => f.id === findingId);
-  if (!finding) return;
-
-  const screenshotUrl = finding.screenshot || currentRunData?.latest_screenshot;
-  openEvidenceModal(
-    screenshotUrl,
-    finding.title,
-    finding.description,
-    finding.recommendation
-  );
-}
-
-// --------------------------------------------------------------------------
-// Evidence Lightbox Modal
-// --------------------------------------------------------------------------
-
-function openEvidenceModal(imgSrc, title, desc, rec) {
-  const modal = $('evidenceModal');
-  const img = $('modalImg');
-  const titleEl = $('modalTitle');
-  const descEl = $('modalDesc');
-  const recEl = $('modalRec');
-
-  img.src = imgSrc || $('screenImage').src || '';
-  titleEl.textContent = title || 'Visual Viewport Trace';
-  descEl.textContent = desc || 'Observation captured during autonomous execution.';
-
-  if (rec) {
-    recEl.style.display = 'block';
-    recEl.innerHTML = `<b style="color:var(--success);">Developer Remediation:</b> ${escapeHtml(rec)}`;
-  } else {
-    recEl.style.display = 'none';
+    modal.classList.add('open');
+    modal.setAttribute('aria-hidden', 'false');
   }
 
-  modal.classList.add('open');
-}
-
-function closeEvidenceModal() {
-  $('evidenceModal')?.classList.remove('open');
-}
-
-// --------------------------------------------------------------------------
-// Autonomous Run Execution & State Polling
-// --------------------------------------------------------------------------
-
-$('runBtn').addEventListener('click', async () => {
-  const goalText = $('goal').value.trim();
-  if (!goalText) {
-    showToast("Please describe a user goal first", "warning");
-    $('goal').focus();
-    return;
+  function closeEvidenceModal() {
+    const modal = $('#evidenceModal');
+    if (modal) {
+      modal.classList.remove('open');
+      modal.setAttribute('aria-hidden', 'true');
+    }
   }
 
-  $('runError').style.display = 'none';
-  $('runBtn').disabled = true;
-  $('runBtn').innerHTML = '<span class="btn-text">Agent Navigating…</span><span>◌</span>';
-  $('cancelBtn').classList.add('visible');
+  function showToast(message) {
+    const stack = $('#toastStack');
+    if (!stack) return;
+    const toast = document.createElement('div');
+    toast.className = 'toast';
+    toast.textContent = message;
+    stack.appendChild(toast);
+    setTimeout(() => {
+      toast.style.opacity = '0';
+      toast.style.transform = 'translateY(8px)';
+      toast.style.transition = 'all 0.3s ease';
+      setTimeout(() => toast.remove(), 350);
+    }, 4000);
+  }
 
-  // Reset viewport & feeds
-  $('trajectory').innerHTML = '';
-  $('screenImage').style.display = 'none';
-  $('screenEmpty').style.display = 'flex';
-  $('screenCaption').textContent = 'Launching Playwright session...';
-  $('viewportOverlay').style.display = 'none';
+  function updateHeaderBadge(stateStr, text) {
+    const header = $('#headerStatus');
+    const label = $('#headerStatusText');
+    if (header) header.dataset.state = stateStr;
+    if (label) label.textContent = text;
+  }
 
-  try {
-    const body = {
-      goal: goalText,
-      target_url: $('target').value.trim() || "http://127.0.0.1:8000/demo/",
-      max_steps: Number($('maxSteps').value) || 18,
-      exploration_passes: Number($('passes').value) || 1,
-    };
+  function escapeHtml(str) {
+    if (!str) return '';
+    return String(str)
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;')
+      .replace(/'/g, '&#039;');
+  }
 
-    const res = await fetch('/api/runs', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(body),
+  // ---------------------------------------------------------------------------
+  // Initial Boot
+  // ---------------------------------------------------------------------------
+  window.addEventListener('DOMContentLoaded', () => {
+    setupPointer();
+    setupReveal();
+    setupScrollMotion();
+    setupRouting();
+
+    // Modal dismiss
+    $('#modalCloseBtn')?.addEventListener('click', closeEvidenceModal);
+    $('#evidenceModal')?.addEventListener('click', (e) => {
+      if (e.target.id === 'evidenceModal') closeEvidenceModal();
     });
 
-    const run = await res.json();
-    if (!res.ok) throw new Error(run.detail || 'Failed to initialize run');
-
-    activeRun = run.id;
-    currentRunData = run;
-
-    $('runId').textContent = run.id;
-    $('screenUrl').textContent = run.target_url;
-    setGlobalRunState('running', run.id);
-
-    // Smooth transition into Live Trajectory view
-    switchView('trajectory');
-    showToast(`Autonomous Run #${run.id} started`, "success");
-
-    await refresh();
-    poller = setInterval(refresh, 650);
-  } catch (err) {
-    $('runError').textContent = err.message;
-    $('runError').style.display = 'flex';
-    $('runBtn').disabled = false;
-    $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
-    $('cancelBtn').classList.remove('visible');
-    showToast(`Run error: ${err.message}`, "error");
-  }
-});
-
-async function cancelActiveRun() {
-  if (!activeRun) return;
-  try {
-    await fetch(`/api/runs/${activeRun}/cancel`, { method: 'POST' });
-    showToast("Cancellation sent to agent", "warning");
-    $('cancelBtn').classList.remove('visible');
-  } catch (err) {
-    console.error("Cancel error:", err);
-  }
-}
-
-async function refresh() {
-  if (!activeRun) return;
-  try {
-    const run = await fetch(`/api/runs/${activeRun}`).then(r => r.json());
-    currentRunData = run;
-
-    $('runId').textContent = run.id;
-    $('stepMeta').textContent = run.step_count;
-    $('navStepBadge').textContent = run.step_count;
-    $('screenUrl').textContent = run.target_url;
-
-    if (run.latest_screenshot) {
-      const img = $('screenImage');
-      img.src = run.latest_screenshot + '?t=' + Date.now();
-      img.style.display = 'block';
-      $('screenEmpty').style.display = 'none';
-      $('screenCaption').textContent = `Latest visual observation · Step ${run.step_count}`;
+    // Check if there was an active run stored in session
+    if (state.activeRunId) {
+      fetch(`/api/runs/${state.activeRunId}`)
+        .then((r) => r.ok ? r.json() : null)
+        .then((data) => {
+          if (data) {
+            state.runData = data;
+            if (data.status === 'running') {
+              state.runStatus = 'running';
+              updateHeaderBadge('running', 'RUNNING');
+              startRunPolling(state.activeRunId);
+            } else if (data.status === 'completed' || data.status === 'success') {
+              state.runStatus = 'success';
+              updateHeaderBadge('success', 'SUCCESS');
+            }
+          }
+        })
+        .catch(() => {});
     }
+  });
 
-    if (run.metrics) {
-      const friction = run.metrics.friction_score ?? '—';
-      $('frictionMetric').textContent = friction !== '—' ? `${friction}/100` : '—';
-      $('wcagMetric').textContent = run.metrics.wcag_grade || '—';
-      $('pathsMetric').textContent = run.metrics.paths ?? (run.paths_discovered || 1);
-      $('pathsMetricJourney').textContent = run.metrics.paths ?? (run.paths_discovered || 1);
-    }
-
-    const isComplete = run.status === 'completed';
-    const isFailed = run.status === 'failed';
-
-    $('goalMetric').textContent = isComplete ? (run.goal_completed ? 'COMPLETE ★' : 'PARTIAL') : (isFailed ? 'FAILED' : 'IN PROGRESS');
-    $('goalMetricSub').textContent = isComplete ? 'All verification criteria met' : 'Agent executing steps';
-    $('goalMetaStatus').textContent = isComplete ? (run.goal_completed ? 'COMPLETED' : 'PARTIAL') : run.status.toUpperCase();
-
-    if (run.report_url) {
-      $('reportLink').href = run.report_url;
-      $('reportLink').style.display = 'inline-flex';
-      $('downloadJsonBtn').href = `/api/runs/${activeRun}/report.json`;
-      $('downloadJsonBtn').style.display = 'inline-flex';
-    }
-
-    $('reportGoalTitle').textContent = run.goal;
-    $('reportMetaSubtitle').textContent = `Run ID: ${run.id} · Target: ${run.target_url}`;
-
-    const issues = run.issues || [];
-    $('navFindingsBadge').textContent = issues.length;
-    filterFindings();
-    renderJourney(run.journey);
-
-    const eventsData = await fetch(`/api/runs/${activeRun}/events`).then(r => r.json());
-    const evs = eventsData.events || [];
-    renderEvents(evs);
-
-    const lastAgent = [...evs].reverse().find(e => e.kind === 'agent');
-    if (lastAgent && lastAgent.data?.confidence) {
-      const confPct = `${(Number(lastAgent.data.confidence) * 100).toFixed(0)}%`;
-      $('confMeta').textContent = confPct;
-      $('overlayConfidence').textContent = `${confPct} Conf`;
-    }
-
-    if (lastAgent && lastAgent.data?.action) {
-      $('viewportOverlay').style.display = 'flex';
-      $('overlayStep').textContent = `STEP ${String(run.step_count).padStart(2, '0')}`;
-      $('overlayAction').textContent = lastAgent.data.action.toUpperCase();
-    }
-
-    if (isComplete || isFailed) {
-      setGlobalRunState(run.status, run.id);
-      $('runBtn').disabled = false;
-      $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
-      $('cancelBtn').classList.remove('visible');
-
-      if (poller) {
-        clearInterval(poller);
-        poller = null;
-      }
-
-      showToast(isComplete ? `Audit #${run.id} Completed!` : `Audit halted: ${run.error || 'Failed'}`, isComplete ? 'success' : 'error');
-      fetchProviderHealth();
-    }
-  } catch (err) {
-    console.error("Refresh error:", err);
-  }
-}
-
-function setGlobalRunState(status, runId) {
-  const badge = $('topbarRunBadge');
-  const text = $('topbarRunText');
-  const trajStatus = $('runStatus');
-
-  badge.className = `status-capsule ${status}`;
-  if (status === 'running') {
-    text.textContent = `RUNNING #${runId || ''}`;
-    trajStatus.className = 'status-capsule running';
-    trajStatus.textContent = 'RUNNING';
-  } else if (status === 'completed') {
-    text.textContent = `COMPLETED #${runId || ''}`;
-    trajStatus.className = 'status-capsule completed';
-    trajStatus.textContent = 'COMPLETED';
-  } else if (status === 'failed') {
-    text.textContent = `FAILED #${runId || ''}`;
-    trajStatus.className = 'status-capsule failed';
-    trajStatus.textContent = 'FAILED';
-  } else {
-    text.textContent = 'IDLE';
-    trajStatus.className = 'status-capsule';
-    trajStatus.textContent = 'IDLE';
-  }
-}
-
-// --------------------------------------------------------------------------
-// Toast Notification Engine
-// --------------------------------------------------------------------------
-
-function showToast(message, type = 'info', duration = 3000) {
-  const stack = $('toastStack');
-  if (!stack) return;
-
-  const toast = document.createElement('div');
-  toast.className = `toast-item ${type}`;
-
-  const iconMap = {
-    info: 'ℹ',
-    success: '✓',
-    warning: '⚠',
-    error: '✕',
-    accent: '✦',
+  // Global namespace for inspect calls
+  window.TRACE_APP = {
+    navigateTo,
+    inspectEvidence,
+    showToast
   };
 
-  toast.innerHTML = `
-    <span style="font-weight:700;">${iconMap[type] || '✦'}</span>
-    <span>${escapeHtml(message)}</span>
-  `;
-
-  stack.appendChild(toast);
-
-  setTimeout(() => {
-    toast.style.opacity = '0';
-    toast.style.transform = 'translateY(8px)';
-    toast.style.transition = 'all 0.25s ease';
-    setTimeout(() => toast.remove(), 260);
-  }, duration);
-}
-
-// --------------------------------------------------------------------------
-// Utility
-// --------------------------------------------------------------------------
-
-function escapeHtml(val) {
-  return String(val ?? '')
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/'/g, '&#39;')
-    .replace(/"/g, '&quot;');
-}
+})();

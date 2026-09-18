@@ -53,7 +53,13 @@ async def run_task(run_id: str, req: RunCreate) -> None:
 
 
 @app.get("/", response_class=HTMLResponse)
-async def home() -> str:
+@app.get("/command", response_class=HTMLResponse)
+@app.get("/live", response_class=HTMLResponse)
+@app.get("/evaluation", response_class=HTMLResponse)
+@app.get("/journeys", response_class=HTMLResponse)
+@app.get("/findings", response_class=HTMLResponse)
+@app.get("/report", response_class=HTMLResponse)
+async def serve_frontend() -> str:
     return (ROOT / "frontend" / "index.html").read_text(encoding="utf-8")
 
 

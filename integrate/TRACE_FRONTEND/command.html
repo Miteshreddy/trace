@@ -1,0 +1,21 @@
+<!doctype html><div class="trace-pointer" id="tracePointer" aria-hidden="true"><span></span></div><div class="page-noise" aria-hidden="true"></div>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TRACE — Command</title><link rel="stylesheet" href="styles.css"></head>
+<body data-page="command">
+<header class="site-header"><a class="logo" href="index.html"><span class="logo-mark"><img src="assets/trace-mark.png" alt=""></span><span>TRACE</span></a><nav class="desktop-nav"><a href="command.html" class="active">Command</a><a href="live.html">Live Screen</a><a href="evaluation.html">Evaluation</a></nav><div class="header-status" data-state="idle"><i></i><span>READY</span></div></header>
+<main class="command-main">
+  <div class="command-wrap">
+    <div class="eyebrow">COMMAND</div>
+    <h1>Tell TRACE what to test.</h1>
+    <p>Describe the outcome a real user should achieve. TRACE handles the path, interaction and evidence.</p>
+    <div class="command-box">
+      <label class="command-goal"><span>✦</span><textarea id="goal" rows="3" placeholder="e.g. Check the signup flow and identify accessibility issues"></textarea></label>
+      <div class="command-controls"><label class="url-control"><span>⌁</span><input id="targetUrl" value="http://127.0.0.1:8000/demo/" aria-label="Target URL"></label><span class="command-reach" id="commandReach"><i></i> Target ready</span><button class="advanced-btn" id="advancedBtn" type="button">Advanced</button><button class="btn primary" id="runAudit" type="button">Run Audit <b>↗</b></button></div>
+      <div class="advanced" id="advanced"><label>Max steps <input id="maxSteps" type="number" value="30" min="5" max="100"></label><label>Exploration passes <input id="passes" type="number" value="3" min="1" max="10"></label></div>
+      <div class="error" id="error" role="alert"></div>
+    </div>
+    <div class="try"><span>Try a task</span><button type="button">Check the signup flow for accessibility issues</button><button type="button">Explore the main navigation and find friction</button><button type="button">Verify a complete guest checkout journey</button></div>
+    <div class="command-footnote"><span>Target validation is checked locally before a run begins.</span><span>Live Session opens immediately after launch.</span></div>
+  </div>
+</main>
+<script src="app.js"></script></body></html>

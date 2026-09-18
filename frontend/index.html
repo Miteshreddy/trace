@@ -1,526 +1,527 @@
 <!doctype html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>TRACE//QA — Autonomous Black-Box UI/UX & Accessibility QA</title>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#08090c">
+  <title>TRACE — Autonomous Quality Engineering</title>
+  <meta name="description" content="Give TRACE a real-world outcome. It explores the product like a user, follows the journey, and turns friction into evidence you can inspect.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
-  <link rel="stylesheet" href="/static/styles.css" />
+  <link href="https://fonts.googleapis.com/css2?family=Inter:ital,opsz,wght@0,14..32,400;0,14..32,500;0,14..32,600;0,14..32,700;0,14..32,800;1,14..32,400&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="/static/styles.css">
 </head>
-<body>
-  <div class="app-shell">
-    <!-- Refined Left Sidebar Navigation -->
-    <aside class="sidebar" id="appSidebar">
-      <div class="brand">
-        <span class="brand-mark"></span>
-        <div class="brand-title">TRACE<span class="brand-slash">//</span>QA</div>
-        <span class="brand-tag">P8</span>
-      </div>
+<body data-page="home">
 
-      <!-- Navigation Menu -->
-      <div class="nav-group">
-        <span class="nav-label">Workspace</span>
-        <button class="nav-item active" id="nav-command-deck" onclick="switchView('command-deck')">
-          <span class="nav-icon">✦</span>
-          <span>Command Deck</span>
-        </button>
-        <button class="nav-item" id="nav-trajectory" onclick="switchView('trajectory')">
-          <span class="nav-icon">⌘</span>
-          <span>Live Trajectory</span>
-          <span class="nav-badge" id="navStepBadge">0</span>
-        </button>
-        <button class="nav-item" id="nav-journey" onclick="switchView('journey')">
-          <span class="nav-icon">☊</span>
-          <span>Journey</span>
-        </button>
-        <button class="nav-item" id="nav-findings" onclick="switchView('findings')">
-          <span class="nav-icon">◒</span>
-          <span>Findings</span>
-          <span class="nav-badge" id="navFindingsBadge">0</span>
-        </button>
-        <button class="nav-item" id="nav-reports" onclick="switchView('reports')">
-          <span class="nav-icon">▤</span>
-          <span>Reports</span>
-        </button>
-      </div>
+  <!-- Custom pointer & noise overlay -->
+  <div class="trace-pointer" id="tracePointer" aria-hidden="true"><span></span></div>
+  <div class="page-noise" aria-hidden="true"></div>
 
-      <div class="nav-group">
-        <span class="nav-label">System</span>
-        <button class="nav-item" id="nav-ai-engine" onclick="switchView('ai-engine')">
-          <span class="nav-icon">⚙</span>
-          <span>AI Engine</span>
-        </button>
-        <button class="nav-item" id="nav-settings" onclick="switchView('settings')">
-          <span class="nav-icon">⚑</span>
-          <span>Settings</span>
-        </button>
-      </div>
+  <!-- ====================================================================
+       GLOBAL SITE HEADER (Authoritative across all routes)
+       ==================================================================== -->
+  <header class="site-header" id="siteHeader">
+    <a class="logo" href="/" data-route="/" aria-label="TRACE home">
+      <span class="logo-mark"><img src="/static/assets/trace-mark.png" alt="TRACE"></span>
+      <span>TRACE</span>
+    </a>
+    <nav class="desktop-nav" id="desktopNav" aria-label="Primary navigation">
+      <a href="/command" data-route="/command" id="nav-command">Command</a>
+      <a href="/live" data-route="/live" id="nav-live">Live Screen</a>
+      <a href="/evaluation" data-route="/evaluation" id="nav-evaluation">Evaluation</a>
+      <a href="/journeys" data-route="/journeys" id="nav-journeys">Journeys</a>
+      <a href="/findings" data-route="/findings" id="nav-findings">Findings</a>
+      <a href="/report" data-route="/report" id="nav-report">Report</a>
+    </nav>
+    <div class="header-status" id="headerStatus" data-state="idle">
+      <i></i><span id="headerStatusText">READY</span>
+    </div>
+  </header>
 
-      <!-- Sidebar Footer Engine Capsule -->
-      <div class="sidebar-bottom">
-        <div class="sidebar-engine-capsule" onclick="switchView('ai-engine')">
-          <div class="engine-pill-group">
-            <span class="pulse-dot-indigo"></span>
-            <span>AI ENGINE</span>
-          </div>
-          <span class="engine-mode-tag font-mono" id="sidebarModeTag">AUTO</span>
-        </div>
-      </div>
-    </aside>
+  <!-- ====================================================================
+       SPA APP SHELL (Clean route views)
+       ==================================================================== -->
+  <main id="appShell">
 
-    <!-- Main Content Area -->
-    <main class="main-content">
-      <!-- Top Bar -->
-      <header class="topbar">
-        <div class="topbar-breadcrumb">
-          <span>Workspace</span>
-          <span class="topbar-divider">/</span>
-          <span class="topbar-current-view" id="topbarViewTitle">Command Deck</span>
-        </div>
+    <!-- ------------------------------------------------------------------
+         VIEW 0: HOMEPAGE (/)
+         ------------------------------------------------------------------ -->
+    <section class="view-section active" id="view-home" data-view="home">
+      <section class="hero-v4" id="top">
+        <div class="hero-grid-bg" aria-hidden="true"></div>
+        <div class="hero-glow glow-left" aria-hidden="true"></div>
+        <div class="hero-glow glow-right" aria-hidden="true"></div>
+        <div class="hero-shell">
+          <div class="hero-copy">
+            <div class="glass-tag reveal">REAL BROWSER · REAL USER GOALS · REAL EVIDENCE</div>
+            <div class="eyebrow reveal">AUTONOMOUS QUALITY ENGINEERING</div>
+            <h1 class="reveal">Test the experience.<br><span>Not just the interface.</span></h1>
+            <p class="hero-lead reveal">Give TRACE a real-world outcome. It explores the product like a user, follows the journey, and turns friction into evidence you can inspect.</p>
 
-        <div class="topbar-actions">
-          <span class="status-capsule" id="topbarRunBadge">
-            <span class="pulse-dot-indigo" style="background:#4D5563;box-shadow:none;"></span>
-            <span id="topbarRunText">IDLE</span>
-          </span>
-          <span class="status-capsule font-mono" id="activeModeBadge">AI ENGINE: AUTO</span>
-          <div class="kbd-shortcut-pill" title="Press / to focus">
-            <span class="kbd-key">⌘</span><span class="kbd-key">K</span>
-          </div>
-          <a class="btn-open-target-link" href="/demo/" target="_blank">
-            <span>Open Target Store</span>
-            <span>↗</span>
-          </a>
-        </div>
-      </header>
-
-      <!-- VIEW 1: COMMAND DECK (Hero Command Center) -->
-      <section class="view-container active" id="view-command-deck">
-        <div class="command-deck-container">
-          <div class="hero-meta-eyebrow">
-            <span>✦</span>
-            <span>AUTONOMOUS QUALITY ENGINEERING</span>
-          </div>
-          <h1 class="hero-big-title">Test any digital experience with an autonomous AI agent.</h1>
-          <p class="hero-sub-copy">
-            Describe what a real user should accomplish. TRACE//QA autonomously navigates the target application, observes layouts, evaluates UX friction, and produces an evidence-backed audit.
-          </p>
-
-          <!-- THE FLAGSHIP FLOATING COMMAND / SEARCH BOX -->
-          <div class="floating-command-box">
-            <div class="command-input-surface">
-              <div class="command-prompt-lead">
-                <div class="prompt-icon-text">
-                  <span class="sparkle-icon">✦</span>
-                  <span>Describe what a real user should accomplish</span>
+            <div class="hero-prompt-wrap reveal">
+              <div class="demo-command hero-demo-command" id="demoCommand">
+                <div class="command-kicker"><span>✦</span> What should TRACE test?</div>
+                <div class="typed-line"><span id="demoTyped"></span><span class="caret" aria-hidden="true"></span></div>
+                <div class="command-foot">
+                  <span class="target-pill">⌁ &nbsp; https://example.test</span>
+                  <span class="demo-state" id="demoState"><i></i> Ready</span>
+                  <button class="replay-btn" id="replay" type="button">Replay ↻</button>
                 </div>
-                <button class="btn-quiet-clear" onclick="clearGoalInput()">Clear</button>
               </div>
-
-              <textarea id="goal" class="command-textarea" rows="2" placeholder="e.g. Find a blue running shoe under $100 and reach checkout..."></textarea>
+              <div class="prompt-caption"><span>Describe the outcome in plain language.</span><span>No scripts. No selectors.</span></div>
             </div>
+          </div>
 
-            <!-- Integrated Bottom Tool Row -->
-            <div class="command-tool-row">
-              <div class="tool-pills-cluster">
-                <button class="tool-pill" onclick="applyPreset(1)" title="Quick Scenario 1">
-                  <span class="tool-pill-icon">+</span>
-                  <span>Preset</span>
-                </button>
-                <div class="tool-pill" onclick="$('target').focus()" title="Target URL">
-                  <span class="pill-dot-indigo"></span>
-                  <span id="toolPillTarget">Target: Demo Store</span>
-                </div>
-                <button class="tool-pill active-mode" id="toolPillMode" onclick="cycleProviderMode()" title="Click to cycle AI Engine Mode">
-                  <span class="tool-pill-icon">⚡</span>
-                  <span id="toolPillModeText">AUTO</span>
-                </button>
-                <button class="tool-pill" onclick="cycleSteps()" title="Click to toggle max steps">
-                  <span class="tool-pill-icon">⚙</span>
-                  <span id="toolPillStepsText">18 Steps</span>
-                </button>
-                <button class="tool-pill" onclick="cyclePasses()" title="Click to toggle passes">
-                  <span class="tool-pill-icon">☊</span>
-                  <span id="toolPillPassesText">1 Pass</span>
-                </button>
+          <div class="hero-console-slot" id="live-screen">
+            <div class="console" id="console" aria-label="TRACE live session demonstration">
+              <div class="console-head">
+                <div class="console-brand"><span class="mini-t"><img src="/static/assets/trace-mark.png" alt=""></span><strong>TRACE</strong><span class="slash">/</span><span>Live Screen</span></div>
+                <div class="console-status"><i></i><span id="sessionStatus">Preparing session</span></div>
+                <div class="console-controls" aria-hidden="true"><span>−</span><span>↗</span><span>×</span></div>
               </div>
-
-              <div class="command-action-cluster">
-                <div class="kbd-shortcut-pill" style="background:transparent;border:0;">
-                  <span class="kbd-key">⌘</span><span class="kbd-key">Enter</span>
+              <div class="console-body">
+                <aside class="journey-panel">
+                  <div class="panel-kicker">RUN PROGRESS</div>
+                  <div class="j-step reached"><span>✓</span><div><b>Goal received</b><small>Outcome understood</small></div></div>
+                  <div class="j-step"><span>02</span><div><b>Opening website</b><small>Starting browser</small></div></div>
+                  <div class="j-step"><span>03</span><div><b>Exploring interface</b><small>Mapping visible controls</small></div></div>
+                  <div class="j-step"><span>04</span><div><b>Testing flow</b><small>Following user intent</small></div></div>
+                  <div class="j-step"><span>05</span><div><b>Checking accessibility</b><small>Reviewing focus and names</small></div></div>
+                  <div class="j-step"><span>06</span><div><b>Capturing evidence</b><small>Saving reproducible context</small></div></div>
+                </aside>
+                <div class="browser-wrap">
+                  <div class="browser">
+                    <div class="browser-bar">
+                      <div class="dots"><i></i><i></i><i></i></div>
+                      <div class="address">⌁ &nbsp; https://example.test</div>
+                      <div class="browser-actions">↻ &nbsp; ⋯</div>
+                    </div>
+                    <div class="browser-page">
+                      <div class="mock-nav"><b>Acme</b><span>Product</span><span>Solutions</span><span>Pricing</span><span>Resources</span><span class="grow"></span><span>Sign in</span><button type="button">Get started</button></div>
+                      <div class="mock-main">
+                        <div class="mock-copy">
+                          <small>BUILT FOR TEAMS</small>
+                          <h3>Continuous QA,<br>solved.</h3>
+                          <p>Autonomous agent explores critical paths, verifies accessibility, and maps friction points.</p>
+                          <div class="mock-buttons"><button type="button">Live demo</button><button type="button">Docs</button></div>
+                        </div>
+                        <div class="mock-art"><span class="shape one"></span><span class="shape two"></span><span class="shape three"></span></div>
+                      </div>
+                      <div class="mock-cards"><span></span><span></span><span></span></div>
+                      <div class="cursor" id="cursor"><i></i><b id="cursorLabel">Exploring interface</b></div>
+                    </div>
+                  </div>
                 </div>
-                <button id="runBtn" class="btn-command-run">
-                  <span class="btn-text">Run Autonomous Audit</span>
-                  <span>➔</span>
-                </button>
-                <button id="cancelBtn" class="btn-command-cancel" onclick="cancelActiveRun()">
-                  <span>✕ Stop</span>
-                </button>
+                <aside class="activity-panel">
+                  <div class="panel-title"><b>Live stream</b><span>•••</span></div>
+                  <div class="activity-list">
+                    <div class="activity-item"><i>01</i><div><b>Goal parsed</b><small>Session initialized</small></div></div>
+                    <div class="activity-item"><i>02</i><div><b>Opening target</b><small>Connecting headless browser</small></div></div>
+                    <div class="activity-item"><i>03</i><div><b>Scanning DOM</b><small>Identified interactive elements</small></div></div>
+                    <div class="activity-item"><i>04</i><div><b>Triggering actions</b><small>Dispatching user clicks</small></div></div>
+                    <div class="activity-item"><i>05</i><div><b>Evaluating contrast</b><small>Computing WCAG compliance</small></div></div>
+                  </div>
+                </aside>
               </div>
             </div>
+            <div class="console-floor" aria-hidden="true"></div>
           </div>
+        </div>
+      </section>
 
-          <!-- Minimalist Scenario Examples Strip (Beneath Command Box) -->
-          <div class="scenario-strip">
-            <span class="scenario-strip-label">Try a scenario</span>
-            <div class="scenario-pill-item" onclick="applyPreset(1)">
-              <span class="scenario-pill-num">01</span>
-              <span>Blue shoe under $100</span>
-            </div>
-            <div class="scenario-pill-item" onclick="applyPreset(2)">
-              <span class="scenario-pill-num">02</span>
-              <span>Multi-path discovery</span>
-            </div>
-            <div class="scenario-pill-item" onclick="applyPreset(3)">
-              <span class="scenario-pill-num">03</span>
-              <span>Modal obstruction recovery</span>
-            </div>
+      <!-- Capability Strip -->
+      <div class="cap-strip section-wide">
+        <div class="cap reveal-scroll"><span class="cap-number">01</span><h3>Autonomous Exploration</h3><p>Give TRACE an outcome. It clicks, fills, navigates, and adapts dynamically to whatever the page renders.</p></div>
+        <div class="cap reveal-scroll"><span class="cap-number">02</span><h3>User-Centric Journeys</h3><p>Maps full end-to-end topological flows rather than isolated brittle unit clicks, finding edge cases humans miss.</p></div>
+        <div class="cap reveal-scroll"><span class="cap-number">03</span><h3>Deep Friction Signals</h3><p>Surfaces broken buttons, contrast failures, navigation loops, and inaccessible forms with precision context.</p></div>
+        <div class="cap reveal-scroll"><span class="cap-number">04</span><h3>Audit Evidence</h3><p>Every defect is backed with screenshots, DOM state checkpoints, and reproducible steps ready for your engineering team.</p></div>
+      </div>
+
+      <!-- Evidence Section -->
+      <section class="evidence-section section-wide">
+        <div class="evidence-shell reveal-scroll">
+          <div class="evidence-copy">
+            <div class="eyebrow">EVIDENCE ENGINE</div>
+            <h2>Issues worth<br><span>inspecting.</span></h2>
+            <p>TRACE produces actionable findings tied directly to the exact step where user friction was encountered.</p>
+            <a class="text-link" href="/command" data-route="/command">Open Command to start <b>↗</b></a>
           </div>
-
-          <!-- Connected Target Bar -->
-          <div class="connected-target-bar">
-            <div class="target-left-group">
-              <span class="pill-dot-indigo"></span>
-              <span class="target-label-text">TARGET APPLICATION</span>
-              <input id="target" class="target-url-input" value="http://127.0.0.1:8000/demo/" placeholder="https://your-app.com" oninput="updateTargetToolPill(this.value)" />
-            </div>
-            <a class="target-open-btn" href="/demo/" target="_blank">
-              <span>Open Target</span>
-              <span>↗</span>
-            </a>
-          </div>
-
-          <!-- Hidden Sync Inputs for Parameters -->
-          <input id="maxSteps" type="hidden" value="18" />
-          <input id="passes" type="hidden" value="1" />
-          <div id="runError" class="status-capsule failed" style="display:none;margin-bottom:16px;"></div>
-
-          <!-- Perception Pillars Grid -->
-          <div class="pillars-row-grid">
-            <div class="pillar-item-box">
-              <span class="pillar-label-num">01 / REASONING</span>
-              <div class="pillar-name">Dual Multimodal AI</div>
-              <div class="pillar-summary">Groq LPUs and Google Gemini TPUs with dynamic AUTO load balancing.</div>
-            </div>
-            <div class="pillar-item-box">
-              <span class="pillar-label-num">02 / SAFETY</span>
-              <div class="pillar-name">Action Validation</div>
-              <div class="pillar-summary">ActionValidator bounds-checks coordinates and validates element schemas.</div>
-            </div>
-            <div class="pillar-item-box">
-              <span class="pillar-label-num">03 / ACCESSIBILITY</span>
-              <div class="pillar-name">WCAG 2.1 AA Checks</div>
-              <div class="pillar-summary">Mathematical color contrast ratios, touch target size, and ARIA labels.</div>
-            </div>
-            <div class="pillar-item-box">
-              <span class="pillar-label-num">04 / EVIDENCE</span>
-              <div class="pillar-name">Visual Action Traces</div>
-              <div class="pillar-summary">Observation screenshots with coordinate bullseyes and target highlights.</div>
+          <div class="evidence-stage">
+            <div class="evidence-back"></div>
+            <div class="evidence-card-front">
+              <div class="finding-top"><span>Finding</span><b>HIGH</b></div>
+              <h3>Checkout button inaccessible via keyboard</h3>
+              <div class="evidence-bars"><i></i><i></i><i></i><i></i></div>
+              <small>WCAG 2.2 · Missing focus indicator · Step 04</small>
             </div>
           </div>
         </div>
       </section>
 
-      <!-- VIEW 2: LIVE TRAJECTORY & OBSERVABILITY CONSOLE -->
-      <section class="view-container" id="view-trajectory">
-        <div class="observability-grid">
-          <!-- Action Timeline -->
-          <div class="timeline-card-shell">
-            <div class="timeline-topbar">
-              <div>
-                <span class="hero-meta-eyebrow" style="font-size:9px;margin-bottom:2px;">REAL-TIME OBSERVABILITY</span>
-                <h2 class="timeline-title">Action Execution Feed</h2>
-              </div>
-              <span id="runStatus" class="status-capsule">IDLE</span>
-            </div>
-
-            <!-- Run Telemetry Strip -->
-            <div class="timeline-meta-strip">
-              <div class="meta-item-box">
-                <span class="meta-label">RUN ID</span>
-                <span class="meta-content-val font-mono" id="runId">—</span>
-              </div>
-              <div class="meta-item-box">
-                <span class="meta-label">STEPS</span>
-                <span class="meta-content-val font-mono" id="stepMeta">0</span>
-              </div>
-              <div class="meta-item-box">
-                <span class="meta-label">CONFIDENCE</span>
-                <span class="meta-content-val font-mono" id="confMeta">—</span>
-              </div>
-              <div class="meta-item-box">
-                <span class="meta-label">STATUS</span>
-                <span class="meta-content-val" id="goalMetaStatus">IDLE</span>
-              </div>
-            </div>
-
-            <!-- Scrollable Event Stream -->
-            <div class="timeline-events-container" id="trajectory">
-              <div class="viewport-waiting-box">
-                <span style="font-size:28px;color:var(--text-subtle);">◌</span>
-                <p>Waiting for agent perception...</p>
-              </div>
-            </div>
-          </div>
-
-          <!-- Browser Testing Instrument -->
-          <div class="browser-viewer-shell">
-            <div class="browser-header-bar">
-              <div class="browser-window-dots">
-                <span class="browser-dot red"></span>
-                <span class="browser-dot yellow"></span>
-                <span class="browser-dot green"></span>
-              </div>
-              <div class="browser-mock-address-bar">
-                <span style="color:var(--success);font-size:9px;">🔒</span>
-                <span class="font-mono" id="screenUrl">http://127.0.0.1:8000/demo/</span>
-              </div>
-              <button class="btn-open-target-link" onclick="openEvidenceModal()" title="Inspect Screenshot">⛶ Zoom</button>
-            </div>
-
-            <div class="viewport-canvas-stage">
-              <img id="screenImage" class="viewport-render-img" style="display:none;" alt="Live Target Observation" />
-              <div id="screenEmpty" class="viewport-waiting-box">
-                <span style="font-size:32px;color:var(--text-subtle);">🖥️</span>
-                <p>Waiting for browser session observation...</p>
-              </div>
-
-              <!-- Action Overlay Capsule -->
-              <div id="viewportOverlay" class="agent-action-overlay-capsule" style="display:none;">
-                <div class="overlay-tag-action">
-                  <span class="overlay-step-num font-mono" id="overlayStep">STEP 01</span>
-                  <span class="overlay-action-label" id="overlayAction">OBSERVING TARGET</span>
-                </div>
-                <span class="overlay-conf-val" id="overlayConfidence">95% Conf</span>
-              </div>
-            </div>
-
-            <div class="browser-footer-strip">
-              <span id="screenCaption">Step observation waiting...</span>
-              <span style="color:var(--accent);font-weight:600;font-size:10px;">● Target Bullseye Active</span>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 3: JOURNEY EXPLORER -->
-      <section class="view-container" id="view-journey">
-        <div class="journey-top-card">
+      <!-- Motion Section -->
+      <section class="trace-motion-section section-wide">
+        <div class="motion-header reveal-scroll">
           <div>
-            <div class="hero-meta-eyebrow">MULTI-PATH STATE GRAPH</div>
-            <h2 class="timeline-title" style="font-size:18px;">Discovered Navigational Paths & Loops</h2>
+            <div class="eyebrow">PATH DISCOVERY</div>
+            <h2>Continuous journey mapping.</h2>
           </div>
-          <div class="journey-metrics-cluster">
-            <div class="journey-metric-item">
-              <span class="journey-metric-lbl">Discovered Paths</span>
-              <span class="journey-metric-val" id="pathsMetricJourney">1</span>
-            </div>
-            <div class="journey-metric-item">
-              <span class="journey-metric-lbl">Unique States</span>
-              <span class="journey-metric-val" id="uniqueStatesCount">0</span>
-            </div>
-            <div class="journey-metric-item">
-              <span class="journey-metric-lbl">Loops Detected</span>
-              <span class="journey-metric-val" id="loopsCount">0</span>
-            </div>
-          </div>
+          <p>TRACE records the topology of discovered states so you can visualize paths mapped and loops avoided.</p>
         </div>
-
-        <div class="journey-graph-stage">
-          <div id="journeyGraphContainer">
-            <div class="viewport-waiting-box">
-              <span style="font-size:32px;color:var(--text-subtle);">☊</span>
-              <p>No journey data mapped yet. Start an autonomous run to explore paths.</p>
-            </div>
-          </div>
+        <div class="journey-visual reveal-scroll" id="journeyVisual">
+          <div class="journey-grid"></div>
+          <svg class="journey-line" viewBox="0 0 1000 220" preserveAspectRatio="none">
+            <path class="journey-path-base" d="M 60 110 C 200 40, 320 180, 500 110 S 760 40, 930 90" />
+            <path class="journey-path-active" d="M 60 110 C 200 40, 320 180, 500 110 S 760 40, 930 90" />
+          </svg>
+          <div class="journey-node node-1"><span>01</span><b>Understand</b></div>
+          <div class="journey-node node-2"><span>02</span><b>Explore</b></div>
+          <div class="journey-node node-3"><span>03</span><b>Interact</b></div>
+          <div class="journey-node node-4"><span>04</span><b>Evaluate</b></div>
+          <div class="journey-node node-5"><span>05</span><b>Evidence</b></div>
+          <div class="journey-cursor"></div>
+          <div class="journey-caption"><span>STATE TOPOLOGY</span><b>Goal → Exploration → Evidence</b></div>
         </div>
       </section>
 
-      <!-- VIEW 4: AUDIT FINDINGS MATRIX -->
-      <section class="view-container" id="view-findings">
-        <div class="findings-header-bar">
-          <input type="text" id="findingsSearch" class="findings-search-input" placeholder="Search defects, selectors, WCAG..." oninput="filterFindings()" />
-
-          <div class="findings-pills-row">
-            <button class="filter-category-pill active" onclick="setFindingFilter('all', this)">ALL <span id="countAll">0</span></button>
-            <button class="filter-category-pill" onclick="setFindingFilter('accessibility', this)">A11Y <span id="countA11y">0</span></button>
-            <button class="filter-category-pill" onclick="setFindingFilter('ux', this)">UX FRICTION <span id="countUx">0</span></button>
-            <button class="filter-category-pill" onclick="setFindingFilter('navigation', this)">NAVIGATION <span id="countNav">0</span></button>
-            <button class="filter-category-pill" onclick="setFindingFilter('visual', this)">VISUAL <span id="countVisual">0</span></button>
-          </div>
-        </div>
-
-        <div class="findings-deck-list" id="findingsList">
-          <div class="viewport-waiting-box" style="background:var(--bg-surface);border:1px solid var(--border-subtle);border-radius:var(--radius-md);">
-            <span style="font-size:32px;color:var(--text-subtle);">◒</span>
-            <p>No findings recorded yet. Execute an audit run to evaluate the target application.</p>
-          </div>
-        </div>
-      </section>
-
-      <!-- VIEW 5: EXECUTIVE REPORTS -->
-      <section class="view-container" id="view-reports">
-        <div class="reports-hero-card">
+      <!-- CTA Section -->
+      <section class="cta-section section-wide">
+        <div class="cta-card reveal-scroll">
           <div>
-            <div class="hero-meta-eyebrow">AUDIT SUMMARY REPORT</div>
-            <h2 class="timeline-title" style="font-size:20px;" id="reportGoalTitle">Audit Summary</h2>
-            <div style="font-size:12px;color:var(--text-muted);margin-top:4px;" id="reportMetaSubtitle">Run ID: — · Target: —</div>
+            <div class="eyebrow">GET STARTED</div>
+            <h2>Give the goal.<br>Let the product reveal <span>the rest.</span></h2>
           </div>
-          <div style="display:flex;gap:10px;">
-            <a id="reportLink" class="btn-command-run" target="_blank" style="display:none;padding:8px 16px;">
-              <span>View Full Executive Report</span>
-              <span>↗</span>
-            </a>
-            <a id="downloadJsonBtn" class="btn-open-target-link" target="_blank" style="display:none;">
-              <span>Download JSON</span>
-              <span>↓</span>
-            </a>
-          </div>
-        </div>
-
-        <div class="scorecards-quad-grid">
-          <div class="quad-score-box">
-            <span class="quad-label">UX Friction Index</span>
-            <div class="quad-big-number" id="frictionMetric">—</div>
-            <span class="quad-caption">Scale 0 - 100 (Lower is better)</span>
-          </div>
-
-          <div class="quad-score-box">
-            <span class="quad-label">WCAG Compliance</span>
-            <div class="quad-big-number" id="wcagMetric">—</div>
-            <span class="quad-caption">2.1 AA Standard Audited</span>
-          </div>
-
-          <div class="quad-score-box">
-            <span class="quad-label">Discovered Paths</span>
-            <div class="quad-big-number" id="pathsMetric">—</div>
-            <span class="quad-caption">Autonomous Journey Branches</span>
-          </div>
-
-          <div class="quad-score-box">
-            <span class="quad-label">Goal Completion</span>
-            <div class="quad-big-number" id="goalMetric">—</div>
-            <span class="quad-caption" id="goalMetricSub">Awaiting execution</span>
-          </div>
+          <a class="btn primary" href="/command" data-route="/command">Open Command <b>↗</b></a>
         </div>
       </section>
 
-      <!-- VIEW 6: AI ENGINE & ORCHESTRATION -->
-      <section class="view-container" id="view-ai-engine">
-        <div class="engine-settings-card">
-          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">
-            <div>
-              <div class="hero-meta-eyebrow">CENTRAL AI PROVIDER ARCHITECTURE</div>
-              <h2 class="timeline-title" style="font-size:18px;">Provider Selection & Telemetry</h2>
-            </div>
-            <div class="mode-selector-pillbar">
-              <button class="mode-btn-option active" id="btnModeAuto" onclick="switchProviderMode('AUTO')">AUTO</button>
-              <button class="mode-btn-option" id="btnModeGroq" onclick="switchProviderMode('GROQ')">GROQ</button>
-              <button class="mode-btn-option" id="btnModeGemini" onclick="switchProviderMode('GEMINI')">GEMINI</button>
-            </div>
+      <!-- Footer -->
+      <footer class="footer section-wide">
+        <div class="footer-brand">
+          <div class="logo">
+            <span class="logo-mark"><img src="/static/assets/trace-mark.png" alt=""></span>
+            <span>TRACE</span>
           </div>
+          <p>Autonomous quality engineering for real web experiences.</p>
+        </div>
+        <nav aria-label="Footer navigation">
+          <a href="/command" data-route="/command">Command</a>
+          <a href="/live" data-route="/live">Live Screen</a>
+          <a href="/evaluation" data-route="/evaluation">Evaluation</a>
+          <a href="/journeys" data-route="/journeys">Journeys</a>
+          <a href="/findings" data-route="/findings">Findings</a>
+          <a href="/report" data-route="/report">Report</a>
+        </nav>
+        <div class="footer-tag">A more usable web, for everyone.</div>
+      </footer>
+    </section>
 
-          <div class="providers-grid-deck">
-            <!-- Groq Box -->
-            <div class="provider-box-tile" id="groqCard">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-weight:700;font-size:14px;color:#fff;">GROQ LPUs</span>
-                <span class="status-capsule" style="font-size:10px;" id="groqStatus">Healthy</span>
-              </div>
-              <span class="prov-model-tag">qwen/qwen3.8-27b</span>
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-subtle);padding-top:8px;">
-                <span>Moving Avg Latency:</span>
-                <span class="lat-val" id="groqLatency">~580ms</span>
+    <!-- ------------------------------------------------------------------
+         VIEW 1: COMMAND (/command)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-command" data-view="command">
+      <main class="command-main">
+        <div class="command-wrap">
+          <div class="eyebrow">COMMAND</div>
+          <h1>Tell TRACE what to test.</h1>
+          <p>Describe the outcome a real user should achieve. TRACE handles the path, interaction and evidence.</p>
+          <div class="command-box">
+            <label class="command-goal">
+              <span>✦</span>
+              <textarea id="goal" rows="3" placeholder="e.g. Find a blue running shoe under $100 and reach checkout"></textarea>
+            </label>
+            <div class="command-controls">
+              <label class="url-control">
+                <span>⌁</span>
+                <input id="targetUrl" value="http://127.0.0.1:8000/demo/" aria-label="Target URL" spellcheck="false">
+              </label>
+              <span class="command-reach" id="commandReach"><i></i> Target ready</span>
+              <button class="advanced-btn" id="advancedBtn" type="button">Advanced</button>
+              <button class="btn primary" id="runAudit" type="button">Run Audit <b>↗</b></button>
+            </div>
+            <div class="advanced" id="advanced">
+              <label>Max steps <input id="maxSteps" type="number" value="18" min="5" max="100"></label>
+              <label>Exploration passes <input id="passes" type="number" value="1" min="1" max="10"></label>
+            </div>
+            <div class="error" id="error" role="alert"></div>
+          </div>
+          <div class="try">
+            <span>Try a task</span>
+            <button type="button" data-task="Find a blue running shoe under $100 and reach checkout">Find a blue running shoe under $100 and reach checkout</button>
+            <button type="button" data-task="Explore the main navigation and find friction">Explore the main navigation and find friction</button>
+            <button type="button" data-task="Check the signup flow and identify accessibility issues">Check the signup flow and identify accessibility issues</button>
+          </div>
+          <div class="command-footnote">
+            <span>Target validation is checked locally before a run begins.</span>
+            <span>Live Session opens immediately after launch.</span>
+          </div>
+        </div>
+      </main>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         VIEW 2: LIVE SCREEN (/live)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-live" data-view="live">
+      <main class="live-main">
+        <div class="live-head">
+          <div>
+            <div class="eyebrow">LIVE SESSION</div>
+            <h1 id="liveGoal">Find a blue running shoe under $100 and reach checkout</h1>
+            <p id="liveSubline">TRACE is exploring the target through a visible browser session.</p>
+          </div>
+          <div class="live-head-actions">
+            <button class="btn ghost" id="btnStopRun" type="button">Stop ⏹</button>
+            <a class="btn ghost" href="/command" data-route="/command">New run ＋</a>
+          </div>
+        </div>
+        <div class="console live-console">
+          <div class="console-head">
+            <div class="console-brand">
+              <span class="mini-t" aria-hidden="true"><img src="/static/assets/trace-mark.png" alt=""></span>
+              <strong>TRACE</strong>
+              <span class="slash">/</span>
+              <span>Live Session</span>
+            </div>
+            <div class="console-status"><i></i><span id="liveStatus">Preparing session</span></div>
+            <div class="console-controls" aria-hidden="true"><span>−</span><span>↗</span><span>×</span></div>
+          </div>
+          <div class="console-body">
+            <aside class="journey-panel">
+              <div class="panel-kicker">RUN PROGRESS</div>
+              <div class="j-step reached" id="liveStep1"><span>✓</span><div><b>Goal received</b><small id="journeyGoal">User goal loaded</small></div></div>
+              <div class="j-step" id="liveStep2"><span>02</span><div><b>Opening website</b><small id="liveStep2Sub">Browser initialized</small></div></div>
+              <div class="j-step" id="liveStep3"><span>03</span><div><b>Exploring interface</b><small id="liveStep3Sub">Interactive controls mapped</small></div></div>
+              <div class="j-step" id="liveStep4"><span>04</span><div><b>Testing flow</b><small id="liveStep4Sub">Following user intent</small></div></div>
+              <div class="j-step" id="liveStep5"><span>05</span><div><b>Checking accessibility</b><small id="liveStep5Sub">Evaluating contrast and names</small></div></div>
+              <div class="j-step" id="liveStep6"><span>06</span><div><b>Capturing evidence</b><small id="liveStep6Sub">Recording findings and journey</small></div></div>
+            </aside>
+            <div class="browser-wrap">
+              <div class="browser live-browser">
+                <div class="browser-bar">
+                  <div class="dots"><i></i><i></i><i></i></div>
+                  <div class="address" id="liveBrowserAddress">⌁ &nbsp; http://127.0.0.1:8000/demo/</div>
+                  <div class="browser-actions">
+                    <a class="browser-open-link" id="liveBrowserOpenLink" href="/demo/" target="_blank" title="Open target website">Open ↗</a>
+                  </div>
+                </div>
+                <div class="browser-page" id="liveBrowserPage">
+                  <img id="liveScreenshotImg" class="live-screenshot-img" style="display:none;" alt="Live Viewport">
+                  <div id="liveBrowserMock" style="width:100%;height:100%;">
+                    <div class="mock-nav"><b>Target Store</b><span>Catalog</span><span>Search</span><span>Cart</span><span class="grow"></span><span>Checkout</span></div>
+                    <div class="mock-main">
+                      <div class="mock-copy">
+                        <small>AUTONOMOUS EXPLORATION</small>
+                        <h3 id="mockTitle">Active Target<br>Viewport.</h3>
+                        <p id="mockDesc">Live target application surface being explored by TRACE.</p>
+                      </div>
+                      <div class="mock-art"><span class="shape one"></span><span class="shape two"></span><span class="shape three"></span></div>
+                    </div>
+                    <div class="mock-cards"><span></span><span></span><span></span></div>
+                    <div class="cursor live-cursor" id="liveCursor"><i></i><b id="liveCursorLabel">Exploring interface</b></div>
+                  </div>
+                </div>
               </div>
             </div>
+            <aside class="activity-panel">
+              <div class="panel-title"><b>Agent activity</b><span id="liveEventCount">0 events</span></div>
+              <div class="activity-list" id="liveActivityList">
+                <div class="activity-empty-state">Waiting for agent events...</div>
+              </div>
+            </aside>
+          </div>
+          <div class="evidence-toast" id="liveEvidenceToast" style="display:none;">
+            <span>✓</span>
+            <div><b>Evidence captured</b><small id="evidenceToastMsg">Finding recorded with context</small></div>
+          </div>
+        </div>
+      </main>
+    </section>
 
-            <!-- Gemini Box -->
-            <div class="provider-box-tile" id="geminiCard">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-weight:700;font-size:14px;color:#fff;">GOOGLE GEMINI TPUs</span>
-                <span class="status-capsule" style="font-size:10px;" id="geminiStatus">Healthy</span>
-              </div>
-              <span class="prov-model-tag">gemini-2.5-flash</span>
-              <div style="display:flex;justify-content:space-between;font-size:12px;color:var(--text-muted);border-top:1px solid var(--border-subtle);padding-top:8px;">
-                <span>Moving Avg Latency:</span>
-                <span class="lat-val" id="geminiLatency">~1.4s</span>
-              </div>
-            </div>
+    <!-- ------------------------------------------------------------------
+         VIEW 3: EVALUATION (/evaluation)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-evaluation" data-view="evaluation">
+      <main class="section-wide" style="padding: 85px 0 110px;">
+        <div class="eyebrow">EVALUATION</div>
+        <h1 style="font-size:clamp(52px,6vw,78px);line-height:.96;letter-spacing:-.06em;margin:16px 0 18px">Issues worth<br><span style="color:#a69aff">inspecting.</span></h1>
+        <p style="max-width:680px;color:#9295a0;font-size:16px;line-height:1.7">Completed evaluations surface evidence-backed findings, accessibility signals and the journey context that produced them.</p>
 
-            <!-- Diagnostics Box -->
-            <div class="provider-box-tile">
-              <div style="display:flex;justify-content:space-between;align-items:center;">
-                <span style="font-weight:700;font-size:14px;color:#fff;">DIAGNOSTICS</span>
-                <span class="prov-model-tag">Active Probe</span>
-              </div>
-              <p style="font-size:11.5px;color:var(--text-muted);">Pings both providers with lightweight verification probes.</p>
-              <button class="btn-open-target-link" id="btnTestProviders" onclick="testAIProviders()" style="justify-content:center;margin-top:auto;">
-                <span>⚡ Test AI Providers</span>
-              </button>
-              <div id="diagFeedback" style="font-size:11px;color:var(--text-secondary);min-height:16px;"></div>
+        <!-- Empty state -->
+        <div class="evidence-shell" id="evaluationEmptyState" style="margin-top:44px">
+          <div class="evidence-copy">
+            <div class="eyebrow">CURRENT SURFACE</div>
+            <h2>No completed evaluation yet.</h2>
+            <p>Start a run from Command and TRACE will attach findings to the journey that produced them.</p>
+            <a class="btn primary" href="/command" data-route="/command" style="margin-top:20px">Start a run <b>↗</b></a>
+          </div>
+          <div class="evidence-stage">
+            <div class="evidence-back"></div>
+            <div class="evidence-card-front">
+              <div class="finding-top"><span>Finding</span><b>HIGH</b></div>
+              <h3>Evidence appears here.</h3>
+              <div class="evidence-bars"><i></i><i></i><i></i><i></i></div>
+              <small>Journey context · screenshot · interaction trace</small>
             </div>
           </div>
         </div>
-      </section>
 
-      <!-- VIEW 7: SETTINGS & TARGETS -->
-      <section class="view-container" id="view-settings">
-        <div class="engine-settings-card">
-          <div class="hero-meta-eyebrow">SYSTEM CONFIGURATION</div>
-          <h2 class="timeline-title" style="font-size:18px;">Execution Parameters & Security</h2>
-
-          <div style="margin-top:16px;display:flex;flex-direction:column;gap:14px;">
-            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border-subtle);">
-              <div>
-                <div style="font-weight:600;font-size:13px;color:#fff;">Target Application Sandbox</div>
-                <div style="font-size:11px;color:var(--text-muted);">Default URL for black-box browser navigation.</div>
-              </div>
-              <span class="font-mono" style="font-size:12px;color:var(--text-primary);padding:4px 8px;background:var(--bg-surface-elevated);border-radius:4px;">http://127.0.0.1:8000/demo/</span>
-            </div>
-
-            <div style="display:flex;justify-content:space-between;align-items:center;padding-bottom:12px;border-bottom:1px solid var(--border-subtle);">
-              <div>
-                <div style="font-weight:600;font-size:13px;color:#fff;">Viewport Dimensions</div>
-                <div style="font-size:11px;color:var(--text-muted);">Browser viewport resolution for coordinate mapping.</div>
-              </div>
-              <span class="font-mono" style="font-size:12px;color:var(--text-primary);padding:4px 8px;background:var(--bg-surface-elevated);border-radius:4px;">1440 × 900 px</span>
-            </div>
-
-            <div style="display:flex;justify-content:space-between;align-items:center;">
-              <div>
-                <div style="font-weight:600;font-size:13px;color:#fff;">Documentation & Source Code</div>
-                <div style="font-size:11px;color:var(--text-muted);">View repository on GitHub.</div>
-              </div>
-              <a class="btn-open-target-link" href="https://github.com/Miteshreddy/trace" target="_blank">View GitHub Repo ↗</a>
-            </div>
-          </div>
+        <!-- Active state -->
+        <div id="evaluationActiveState" style="display:none;margin-top:36px;">
+          <div class="findings-grid" id="evaluationFindingsGrid"></div>
         </div>
-      </section>
+      </main>
+    </section>
 
-      <!-- Toast Notifications Container -->
-      <div class="toast-stack" id="toastStack"></div>
+    <!-- ------------------------------------------------------------------
+         VIEW 4: JOURNEYS (/journeys)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-journeys" data-view="journeys">
+      <main class="simple-main">
+        <div class="eyebrow">JOURNEYS</div>
+        <h1>Journey evidence.</h1>
+        <p>Completed TRACE journeys appear here with states, checkpoints and reproducible context.</p>
 
-      <!-- Evidence Inspector Lightbox Modal -->
-      <div class="modal-backdrop" id="evidenceModal" onclick="if(event.target === this) closeEvidenceModal()">
-        <div class="modal-content-box">
-          <div class="modal-header-strip">
-            <h3 style="font-size:14px;font-weight:700;color:#fff;" id="modalTitle">Evidence Inspector</h3>
-            <button class="btn-modal-close" onclick="closeEvidenceModal()">✕</button>
+        <!-- Empty state -->
+        <div class="empty-surface" id="journeysEmptyState">
+          <span class="surface-mark">01</span>
+          <div>
+            <h2>No completed journeys yet.</h2>
+            <p>Start a run from Command and the journey record will land here.</p>
           </div>
-          <div class="modal-body-content">
-            <div class="modal-img-stage">
-              <img id="modalImg" src="" alt="Observation Screenshot Trace" />
-            </div>
-            <div id="modalDesc" style="font-size:12.5px;color:var(--text-secondary);line-height:1.5;"></div>
-            <div id="modalRec" class="finding-remediation-lead" style="display:none;"></div>
-          </div>
+          <a class="btn primary" href="/command" data-route="/command">Start a run <b>↗</b></a>
         </div>
+
+        <!-- Active state -->
+        <div id="journeysActiveState" style="display:none;">
+          <div class="journey-metrics">
+            <div class="journey-metric-card">
+              <div class="val violet" id="jUniqueStates">0</div>
+              <div class="lbl">Unique States Discovered</div>
+            </div>
+            <div class="journey-metric-card">
+              <div class="val green" id="jPathsMapped">0</div>
+              <div class="lbl">Paths Mapped</div>
+            </div>
+            <div class="journey-metric-card">
+              <div class="val amber" id="jLoopsAvoided">0</div>
+              <div class="lbl">Loops Avoided</div>
+            </div>
+          </div>
+          <div class="journey-dag-canvas" id="journeysDagContainer"></div>
+        </div>
+      </main>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         VIEW 5: FINDINGS (/findings)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-findings" data-view="findings">
+      <main class="simple-main">
+        <div class="eyebrow">FINDINGS</div>
+        <h1>Issues worth inspecting.</h1>
+        <p>Completed findings appear here with severity, evidence and the exact journey context that produced them.</p>
+
+        <div class="findings-toolbar">
+          <div class="filter-tabs">
+            <button class="filter-tab active" data-filter="all" type="button">All (<span id="findingsCountAll">0</span>)</button>
+            <button class="filter-tab" data-filter="accessibility" type="button">Accessibility (<span id="findingsCountA11y">0</span>)</button>
+            <button class="filter-tab" data-filter="ux" type="button">UX (<span id="findingsCountUx">0</span>)</button>
+            <button class="filter-tab" data-filter="navigation" type="button">Navigation (<span id="findingsCountNav">0</span>)</button>
+            <button class="filter-tab" data-filter="visual" type="button">Visual (<span id="findingsCountVisual">0</span>)</button>
+          </div>
+          <input id="findingsSearch" class="search-input" type="text" placeholder="Filter defects..." aria-label="Search findings">
+        </div>
+
+        <!-- Empty state -->
+        <div class="empty-surface" id="findingsEmptyState">
+          <span class="surface-mark">02</span>
+          <div>
+            <h2>No findings yet.</h2>
+            <p>Once a session finishes, evidence-backed findings will be collected here.</p>
+          </div>
+          <a class="btn primary" href="/command" data-route="/command">Start a run <b>↗</b></a>
+        </div>
+
+        <!-- Active list -->
+        <div class="findings-grid" id="findingsActiveList" style="display:none;"></div>
+      </main>
+    </section>
+
+    <!-- ------------------------------------------------------------------
+         VIEW 6: REPORT (/report)
+         ------------------------------------------------------------------ -->
+    <section class="view-section" id="view-report" data-view="report">
+      <main class="simple-main">
+        <div class="eyebrow">REPORT</div>
+        <h1>Evidence, in one place.</h1>
+        <p>Completed sessions will produce a clean audit surface with findings, journey context and captured evidence.</p>
+
+        <!-- Empty state -->
+        <div class="empty-surface" id="reportEmptyState">
+          <span class="surface-mark">03</span>
+          <div>
+            <h2>No report generated yet.</h2>
+            <p>Run a test from Command to generate the first report surface.</p>
+          </div>
+          <a class="btn primary" href="/command" data-route="/command">Start a run <b>↗</b></a>
+        </div>
+
+        <!-- Active report -->
+        <div id="reportActiveState" style="display:none;">
+          <div class="report-summary-card">
+            <span class="report-run-badge">Audit Complete</span>
+            <h2 class="report-goal-title" id="reportGoalHeading">—</h2>
+            <p class="report-meta-line" id="reportMetaText">Run ID: — · Target: http://127.0.0.1:8000/demo/</p>
+            <div class="report-actions">
+              <a id="btnExportHtml" class="btn primary" target="_blank">Open HTML Report ↗</a>
+              <a id="btnExportJson" class="btn ghost" download>Export JSON ↓</a>
+            </div>
+          </div>
+
+          <div class="report-metrics-grid">
+            <div class="report-metric-box">
+              <div class="val" id="metricFriction" style="color:var(--violet)">—</div>
+              <div class="lbl">Friction Index</div>
+            </div>
+            <div class="report-metric-box">
+              <div class="val" id="metricWcag">—</div>
+              <div class="lbl">WCAG 2.2 Grade</div>
+            </div>
+            <div class="report-metric-box">
+              <div class="val" id="metricPaths">—</div>
+              <div class="lbl">Paths Mapped</div>
+            </div>
+            <div class="report-metric-box">
+              <div class="val" id="metricSteps">—</div>
+              <div class="lbl">Total Steps</div>
+            </div>
+          </div>
+
+          <div id="reportEditorialContent"></div>
+        </div>
+      </main>
+    </section>
+
+  </main>
+
+  <!-- Evidence Inspection Modal -->
+  <div class="modal-backdrop" id="evidenceModal" aria-hidden="true">
+    <div class="modal-window">
+      <div class="modal-head">
+        <h3 id="modalEvidenceTitle">Evidence Inspection</h3>
+        <button class="modal-close-btn" id="modalCloseBtn" type="button" aria-label="Close modal">✕</button>
       </div>
-    </main>
+      <div class="modal-img-wrap" id="modalImgWrap">
+        <img id="modalEvidenceImg" src="" alt="Defect Evidence">
+      </div>
+      <div class="modal-details" id="modalEvidenceDesc"></div>
+    </div>
   </div>
 
+  <!-- Toast Notification Stack -->
+  <div class="toast-stack" id="toastStack" aria-live="polite"></div>
+
+  <!-- Application Logic -->
   <script src="/static/app.js"></script>
 </body>
 </html>

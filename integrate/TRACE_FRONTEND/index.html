@@ -1,0 +1,190 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#09090d">
+  <meta name="description" content="TRACE — autonomous quality engineering for real web experiences.">
+  <title>TRACE — Test the experience</title>
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body class="home" data-page="home">
+  <div class="trace-pointer" id="tracePointer" aria-hidden="true"><span></span></div>
+  <div class="page-noise" aria-hidden="true"></div>
+
+  <header class="site-header home-header">
+    <a class="logo" href="index.html" aria-label="TRACE home">
+      <span class="logo-mark"><img src="assets/trace-mark.png" alt=""></span>
+      <span>TRACE</span>
+    </a>
+    <nav class="desktop-nav" aria-label="Primary navigation">
+      <a href="command.html">Command</a>
+      <a href="live.html">Live Screen</a>
+      <a href="evaluation.html">Evaluation</a>
+    </nav>
+    <div class="header-status" id="headerStatus" data-state="idle">
+      <i></i><span>READY</span>
+    </div>
+  </header>
+
+  <main>
+    <section class="hero-v4" id="top">
+      <div class="hero-grid-bg" aria-hidden="true"></div>
+      <div class="hero-glow glow-left" aria-hidden="true"></div>
+      <div class="hero-glow glow-right" aria-hidden="true"></div>
+      <div class="hero-shell">
+        <div class="hero-copy">
+          <div class="glass-tag reveal">REAL BROWSER · REAL USER GOALS · REAL EVIDENCE</div>
+          <div class="eyebrow reveal">AUTONOMOUS QUALITY ENGINEERING</div>
+          <h1 class="reveal">Test the experience.<br><span>Not just the interface.</span></h1>
+          <p class="hero-lead reveal">Give TRACE a real-world outcome. It explores the product like a user, follows the journey, and turns friction into evidence you can inspect.</p>
+
+          <div class="hero-prompt-wrap reveal">
+            <div class="demo-command hero-demo-command" id="demoCommand">
+              <div class="command-kicker"><span>✦</span> What should TRACE test?</div>
+              <div class="typed-line"><span id="demoTyped"></span><span class="caret" aria-hidden="true"></span></div>
+              <div class="command-foot">
+                <span class="target-pill">⌁ &nbsp; https://example.test</span>
+                <span class="demo-state" id="demoState"><i></i> Ready</span>
+                <button class="replay-btn" id="replay" type="button">Replay ↻</button>
+              </div>
+            </div>
+            <div class="prompt-caption"><span>Describe the outcome in plain language.</span><span>No scripts. No selectors.</span></div>
+          </div>
+        </div>
+
+        <div class="hero-console-slot" id="live-screen">
+          <div class="console" id="console" aria-label="TRACE live session demonstration">
+            <div class="console-head">
+              <div class="console-brand"><span class="mini-t"><img src="assets/trace-mark.png" alt=""></span><strong>TRACE</strong><span class="slash">/</span><span>Live Screen</span></div>
+              <div class="console-status"><i></i><span id="sessionStatus">Preparing session</span></div>
+              <div class="console-controls" aria-hidden="true"><span>−</span><span>↗</span><span>×</span></div>
+            </div>
+            <div class="console-body">
+              <aside class="journey-panel">
+                <div class="panel-kicker">RUN PROGRESS</div>
+                <div class="j-step reached"><span>01</span><div><b>Goal received</b><small>Outcome understood</small></div></div>
+                <div class="j-step"><span>02</span><div><b>Opening website</b><small>Starting browser</small></div></div>
+                <div class="j-step"><span>03</span><div><b>Exploring interface</b><small>Mapping visible controls</small></div></div>
+                <div class="j-step"><span>04</span><div><b>Testing flow</b><small>Following user intent</small></div></div>
+                <div class="j-step"><span>05</span><div><b>Checking accessibility</b><small>Reviewing focus and names</small></div></div>
+                <div class="j-step"><span>06</span><div><b>Capturing evidence</b><small>Saving reproducible context</small></div></div>
+              </aside>
+
+              <div class="browser-wrap">
+                <div class="browser">
+                  <div class="browser-bar">
+                    <div class="dots"><i></i><i></i><i></i></div>
+                    <div class="address">⌁ &nbsp; https://example.test</div>
+                    <div class="browser-actions" aria-hidden="true">↻ &nbsp; ⋯</div>
+                  </div>
+                  <div class="browser-page">
+                    <div class="mock-nav"><b>Acme</b><span>Product</span><span>Solutions</span><span>Pricing</span><span>Resources</span><span class="grow"></span><span>Sign in</span><button>Get started</button></div>
+                    <div class="mock-main">
+                      <div class="mock-copy"><small>PRODUCT EXPERIENCE</small><h3>Make every<br>interaction count.</h3><p>A neutral target surface for visualizing a real browser journey.</p><div class="mock-buttons"><button>Get started</button><button>Learn more</button></div></div>
+                      <div class="mock-art" aria-hidden="true"><span class="shape one"></span><span class="shape two"></span><span class="shape three"></span></div>
+                    </div>
+                    <div class="mock-cards"><span></span><span></span><span></span></div>
+                    <div class="cursor" id="cursor"><i></i><b id="cursorLabel">Exploring interface</b></div>
+                  </div>
+                </div>
+              </div>
+
+              <aside class="activity-panel">
+                <div class="panel-title"><b>Activity</b><span>•••</span></div>
+                <div class="activity-list">
+                  <div class="activity-item" data-activity="0"><i>○</i><div><b>Opening website</b><small>Browser initialized</small></div></div>
+                  <div class="activity-item" data-activity="1"><i>○</i><div><b>Inspecting navigation</b><small>Visible controls mapped</small></div></div>
+                  <div class="activity-item" data-activity="2"><i>○</i><div><b>Testing primary flow</b><small>Following user path</small></div></div>
+                  <div class="activity-item" data-activity="3"><i>○</i><div><b>Checking accessibility</b><small>Focus and naming review</small></div></div>
+                  <div class="activity-item" data-activity="4"><i>○</i><div><b>Capturing evidence</b><small>Saving page state</small></div></div>
+                </div>
+              </aside>
+            </div>
+          </div>
+          <div class="console-floor" aria-hidden="true"></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="cap-strip section-wide" id="product">
+      <article class="cap reveal"><span class="cap-number">01</span><h3>Real journeys</h3><p>Start with an outcome, not a script.</p></article>
+      <article class="cap reveal"><span class="cap-number">02</span><h3>Real friction</h3><p>Find moments that fixed paths overlook.</p></article>
+      <article class="cap reveal"><span class="cap-number">03</span><h3>Real evidence</h3><p>Keep every result inspectable and reproducible.</p></article>
+      <article class="cap reveal"><span class="cap-number">04</span><h3>Real regression</h3><p>See what changed between experiences.</p></article>
+    </section>
+
+    <section class="evidence-section section-wide" id="evaluation">
+      <div class="evidence-shell reveal-scroll">
+        <div class="evidence-copy">
+          <div class="eyebrow">EVIDENCE FIRST</div>
+          <h2>Know what happened.<br>See <span>where it happened.</span></h2>
+          <p>Every finding stays attached to the journey that produced it, so your result is inspectable instead of abstract.</p>
+          <a class="text-link" href="evaluation.html">Open the evaluation surface <b>↗</b></a>
+        </div>
+        <div class="evidence-stage" aria-hidden="true">
+          <div class="evidence-back"></div>
+          <div class="evidence-card-front">
+            <div class="finding-top"><span>Finding</span><b>HIGH</b></div>
+            <h3>Focus moves out of sequence</h3>
+            <div class="evidence-bars"><i></i><i></i><i></i><i></i></div>
+            <small>Observed during keyboard navigation</small>
+            <div class="evidence-chip">Journey / Signup · Step 04</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="trace-motion-section section-wide">
+      <div class="motion-header reveal">
+        <div>
+          <div class="eyebrow">TRACE THE JOURNEY</div>
+          <h2>Watch intent become a path.</h2>
+        </div>
+        <p>The agent moves through visible interfaces, adapts to what appears, and leaves a trace behind each step.</p>
+      </div>
+
+      <div class="journey-visual reveal-scroll" id="journeyVisual">
+        <div class="journey-grid" aria-hidden="true"></div>
+        <svg class="journey-line" viewBox="0 0 1000 240" preserveAspectRatio="none" aria-hidden="true">
+          <path class="journey-path-base" d="M70 165 C170 165 175 70 290 70 S430 195 540 150 S700 54 790 95 S875 180 940 105"/>
+          <path class="journey-path-active" d="M70 165 C170 165 175 70 290 70 S430 195 540 150 S700 54 790 95 S875 180 940 105"/>
+        </svg>
+        <div class="journey-node node-1"><span>01</span><b>Understand</b></div>
+        <div class="journey-node node-2"><span>02</span><b>Explore</b></div>
+        <div class="journey-node node-3"><span>03</span><b>Adapt</b></div>
+        <div class="journey-node node-4"><span>04</span><b>Inspect</b></div>
+        <div class="journey-node node-5"><span>05</span><b>Capture</b></div>
+        <div class="journey-cursor" aria-hidden="true"></div>
+        <div class="journey-caption"><span>LIVE TRACE</span><b>Goal → Journey → Evidence</b></div>
+      </div>
+    </section>
+
+    <section class="cta-section section-wide">
+      <div class="cta-card reveal-scroll">
+        <div>
+          <div class="eyebrow">READY TO TRACE?</div>
+          <h2>Give the goal.<br>Let the product reveal <span>the rest.</span></h2>
+        </div>
+        <a class="btn primary" href="command.html">Open Command <b>↗</b></a>
+      </div>
+    </section>
+  </main>
+
+  <footer class="footer section-wide">
+    <div class="footer-brand">
+      <a class="logo" href="index.html"><span class="logo-mark"><img src="assets/trace-mark.png" alt=""></span><span>TRACE</span></a>
+      <p>Autonomous quality engineering for real web experiences.</p>
+    </div>
+    <nav aria-label="Footer navigation">
+      <a href="command.html">Command</a>
+      <a href="live.html">Live Screen</a>
+      <a href="evaluation.html">Evaluation</a>
+      <a href="report.html">Report</a>
+    </nav>
+    <div class="footer-tag">A more usable web, for everyone.</div>
+  </footer>
+
+  <script src="app.js"></script>
+</body>
+</html>

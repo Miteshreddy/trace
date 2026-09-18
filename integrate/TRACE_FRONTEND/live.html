@@ -1,0 +1,35 @@
+<!doctype html><div class="trace-pointer" id="tracePointer" aria-hidden="true"><span></span></div><div class="page-noise" aria-hidden="true"></div>
+<html lang="en">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>TRACE — Live Session</title><link rel="stylesheet" href="styles.css"></head>
+<body data-page="live">
+<header class="site-header"><a class="logo" href="index.html"><span class="logo-mark"><img src="assets/trace-mark.png" alt=""></span><span>TRACE</span></a><nav class="desktop-nav"><a href="command.html">Command</a><a href="live.html" class="active">Live Screen</a><a href="evaluation.html">Evaluation</a></nav><div class="header-status" data-state="running"><i></i><span>RUNNING</span></div></header>
+<main class="live-main">
+  <div class="live-head"><div><div class="eyebrow">LIVE SESSION</div><h1 id="liveGoal">Check the signup flow and identify accessibility issues</h1><p>TRACE is exploring the target through a visible browser session.</p></div><a class="btn ghost" href="command.html">New run ＋</a></div>
+  <div class="console live-console">
+    <div class="console-head"><div class="console-brand"><span class="mini-t" aria-hidden="true"><img src="assets/trace-mark.png" alt=""></span><strong>TRACE</strong><span class="slash">/</span><span>Live Session</span></div><div class="console-status"><i></i><span id="liveStatus">Agent is running</span></div><div class="console-controls" aria-hidden="true"><span>−</span><span>↗</span><span>×</span></div></div>
+    <div class="console-body">
+      <aside class="journey-panel"><div class="panel-kicker">RUN PROGRESS</div>
+        <div class="j-step reached"><span>✓</span><div><b>Goal received</b><small id="journeyGoal">User goal loaded</small></div></div>
+        <div class="j-step reached"><span>✓</span><div><b>Opening website</b><small>Browser initialized</small></div></div>
+        <div class="j-step reached"><span>✓</span><div><b>Exploring interface</b><small>Interactive controls mapped</small></div></div>
+        <div class="j-step current"><span>◌</span><div><b>Testing flow</b><small>Following user intent</small></div></div>
+        <div class="j-step"><span></span><div><b>Checking accessibility</b><small>Waiting</small></div></div>
+        <div class="j-step"><span></span><div><b>Capturing evidence</b><small>Waiting</small></div></div>
+      </aside>
+      <div class="browser-wrap"><div class="browser live-browser"><div class="browser-bar"><div class="dots"><i></i><i></i><i></i></div><div class="address">⌁ &nbsp; http://127.0.0.1:8000/demo/</div><div class="browser-actions">↻ &nbsp; ⋯</div></div><div class="browser-page">
+        <div class="mock-nav"><b>Example</b><span>Product</span><span>Solutions</span><span>Pricing</span><span>Resources</span><span class="grow"></span><span>Sign in</span><button>Get started</button></div>
+        <div class="mock-main"><div class="mock-copy"><small>BUILT FOR MODERN TEAMS</small><h3>Ship with<br>confidence.</h3><p>A neutral target interface used to show the live exploration surface.</p><div class="mock-buttons"><button>Get started</button><button>Learn more</button></div></div><div class="mock-art"><span class="shape one"></span><span class="shape two"></span><span class="shape three"></span></div></div>
+        <div class="mock-cards"><span></span><span></span><span></span></div><div class="cursor live-cursor" id="liveCursor"><i></i><b>Checking focus order</b></div>
+      </div></div></div>
+      <aside class="activity-panel"><div class="panel-title"><b>Agent activity</b><span>•••</span></div><div class="activity-list">
+        <div class="activity-item done"><i>✓</i><div><b>Opening website</b><small>Browser initialized</small></div></div>
+        <div class="activity-item done"><i>✓</i><div><b>Inspecting navigation</b><small>Visible controls mapped</small></div></div>
+        <div class="activity-item current"><i>◌</i><div><b>Testing primary flow</b><small>Following the user path</small></div></div>
+        <div class="activity-item"><i>○</i><div><b>Checking accessibility</b><small>Next</small></div></div>
+        <div class="activity-item"><i>○</i><div><b>Capturing evidence</b><small>Next</small></div></div>
+      </div></aside>
+    </div>
+    <div class="evidence-toast"><span>✓</span><div><b>Evidence captured</b><small>Screenshot + interaction context</small></div></div>
+  </div>
+</main>
+<script src="app.js"></script></body></html>
