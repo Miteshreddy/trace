@@ -62,7 +62,7 @@
       <div class="sidebar-bottom">
         <div class="sidebar-engine-capsule" onclick="switchView('ai-engine')">
           <div class="engine-pill-group">
-            <span class="pulse-dot-lime"></span>
+            <span class="pulse-dot-indigo"></span>
             <span>AI ENGINE</span>
           </div>
           <span class="engine-mode-tag font-mono" id="sidebarModeTag">AUTO</span>
@@ -82,7 +82,7 @@
 
         <div class="topbar-actions">
           <span class="status-capsule" id="topbarRunBadge">
-            <span class="pulse-dot-lime" style="background:#71717a;box-shadow:none;"></span>
+            <span class="pulse-dot-indigo" style="background:#4D5563;box-shadow:none;"></span>
             <span id="topbarRunText">IDLE</span>
           </span>
           <span class="status-capsule font-mono" id="activeModeBadge">AI ENGINE: AUTO</span>
@@ -130,7 +130,7 @@
                   <span>Preset</span>
                 </button>
                 <div class="tool-pill" onclick="$('target').focus()" title="Target URL">
-                  <span class="pill-dot-green"></span>
+                  <span class="pill-dot-indigo"></span>
                   <span id="toolPillTarget">Target: Demo Store</span>
                 </div>
                 <button class="tool-pill active-mode" id="toolPillMode" onclick="cycleProviderMode()" title="Click to cycle AI Engine Mode">
@@ -152,7 +152,7 @@
                   <span class="kbd-key">⌘</span><span class="kbd-key">Enter</span>
                 </div>
                 <button id="runBtn" class="btn-command-run">
-                  <span class="btn-text">Run Audit</span>
+                  <span class="btn-text">Run Autonomous Audit</span>
                   <span>➔</span>
                 </button>
                 <button id="cancelBtn" class="btn-command-cancel" onclick="cancelActiveRun()">
@@ -182,7 +182,7 @@
           <!-- Connected Target Bar -->
           <div class="connected-target-bar">
             <div class="target-left-group">
-              <span class="pill-dot-green"></span>
+              <span class="pill-dot-indigo"></span>
               <span class="target-label-text">TARGET APPLICATION</span>
               <input id="target" class="target-url-input" value="http://127.0.0.1:8000/demo/" placeholder="https://your-app.com" oninput="updateTargetToolPill(this.value)" />
             </div>

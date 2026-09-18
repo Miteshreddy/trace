@@ -539,7 +539,7 @@ $('runBtn').addEventListener('click', async () => {
     $('runError').textContent = err.message;
     $('runError').style.display = 'flex';
     $('runBtn').disabled = false;
-    $('runBtn').innerHTML = '<span class="btn-text">Run Audit</span><span>➔</span>';
+    $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
     $('cancelBtn').classList.remove('visible');
     showToast(`Run error: ${err.message}`, "error");
   }
@@ -625,7 +625,7 @@ async function refresh() {
     if (isComplete || isFailed) {
       setGlobalRunState(run.status, run.id);
       $('runBtn').disabled = false;
-      $('runBtn').innerHTML = '<span class="btn-text">Run Audit</span><span>➔</span>';
+      $('runBtn').innerHTML = '<span class="btn-text">Run Autonomous Audit</span><span>➔</span>';
       $('cancelBtn').classList.remove('visible');
 
       if (poller) {
