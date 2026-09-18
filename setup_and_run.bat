@@ -1,5 +1,5 @@
 @echo off
-setlocal EnableExtensions EnableDelayedExpansion
+setlocal
 cd /d "%~dp0"
 
 echo.
@@ -9,99 +9,59 @@ echo   Providers: Groq (LPU) + Google Gemini (TPU)
 echo  ======================================================
 echo.
 
+REM 1. Check Python installation
 where py >nul 2>&1
-if errorlevel 1 (
+if %ERRORLEVEL% equ 0 (
+  set "PY_CMD=py -3"
+) else (
   where python >nul 2>&1
-  if errorlevel 1 (
-    echo Python was not found. Please install Python 3.11+ and add to PATH.
+  if %ERRORLEVEL% equ 0 (
+    set "PY_CMD=python"
+  ) else (
+    echo [ERROR] Python 3 was not found. Please install Python 3.10+ and add it to PATH.
     pause
     exit /b 1
-  ) else (
-    set "PY_CMD=python"
   )
+)
+
+REM Check Node.js runtime (optional)
+where node >nul 2>&1
+if %ERRORLEVEL% equ 0 (
+  echo [+] Node.js detected.
 ) else (
-  set "PY_CMD=py -3"
+  echo [-] Node.js not detected - optional, Python backend is used.
 )
 
+REM 2. Setup Virtual Environment
 if not exist ".venv\Scripts\python.exe" (
-  echo [1/5] Creating Python virtual environment...
+  echo [1/4] Creating Python virtual environment...
   %PY_CMD% -m venv .venv
+  if %ERRORLEVEL% neq 0 (
+    echo [ERROR] Failed to create virtual environment.
+    pause
+    exit /b 1
+  )
 )
 
-echo [2/5] Checking Python dependencies...
-call ".venv\Scripts\python.exe" -m pip install -r requirements.txt >nul 2>&1
-if errorlevel 1 (
-  echo Dependency check failed. Retrying in verbose mode...
-  call ".venv\Scripts\python.exe" -m pip install -r requirements.txt
-)
-
-echo [3/5] Verifying Playwright Chromium browser...
+REM 3. Dependencies and Playwright Chromium
+echo [2/4] Verifying dependencies and Playwright browser...
+call ".venv\Scripts\python.exe" -m pip install -r requirements.txt --quiet
 call ".venv\Scripts\python.exe" -m playwright install chromium >nul 2>&1
 
+REM 4. Ensure .env exists
 if not exist ".env" (
   echo Creating initial .env from template...
   copy /y ".env.example" ".env" >nul
 )
 
-echo [4/5] Auditing AI Provider Configuration...
-set "GROQ_KEY="
-set "GEMINI_KEY="
+REM 5. Audit AI Providers (without exposing secrets)
+echo [3/4] Auditing AI Provider Configuration...
+call ".venv\Scripts\python.exe" -m backend.audit_env
 
-for /f "usebackq tokens=1,* delims==" %%A in (".env") do (
-  if "%%A"=="GROQ_API_KEY" set "GROQ_KEY=%%B"
-  if "%%A"=="GEMINI_API_KEY" set "GEMINI_KEY=%%B"
-)
-
-set "CONFIGURED_COUNT=0"
-
-if not "!GROQ_KEY!"=="" (
-  echo   [+] Groq Provider: CONFIGURED
-  set /a CONFIGURED_COUNT+=1
-) else (
-  echo   [!] Groq Provider: NOT CONFIGURED
-)
-
-if not "!GEMINI_KEY!"=="" (
-  echo   [+] Google Gemini Provider: CONFIGURED
-  set /a CONFIGURED_COUNT+=1
-) else (
-  echo   [!] Google Gemini Provider: NOT CONFIGURED
-)
-
-if !CONFIGURED_COUNT! EQU 0 (
-  echo.
-  echo [!] Neither Groq nor Gemini keys were found in .env.
-  echo     Please enter at least one API key to enable autonomous testing.
-  set /p "USER_GROQ=Enter Groq API key (or press Enter to skip): "
-  if not "!USER_GROQ!"=="" (
-    powershell -NoProfile -Command "(Get-Content '.env') -replace '^GROQ_API_KEY=.*$','GROQ_API_KEY=' + $env:USER_GROQ | Set-Content '.env'"
-    set /a CONFIGURED_COUNT+=1
-  )
-  set /p "USER_GEMINI=Enter Gemini API key (or press Enter to skip): "
-  if not "!USER_GEMINI!"=="" (
-    powershell -NoProfile -Command "(Get-Content '.env') -replace '^GEMINI_API_KEY=.*$','GEMINI_API_KEY=' + $env:USER_GEMINI | Set-Content '.env'"
-    set /a CONFIGURED_COUNT+=1
-  )
-)
-
-if !CONFIGURED_COUNT! EQU 1 (
-  echo.
-  echo ---------------------------------------------------------------
-  echo  WARNING: Only one AI provider is configured.
-  echo  TRACE//QA will start in DEGRADED mode with single-provider failover.
-  echo ---------------------------------------------------------------
-) else (
-  echo.
-  echo   Dual-provider architecture ready (AUTO failover active).
-)
-
+REM 6. Launch Server & Browser
 echo.
-echo [5/5] Launching TRACE//QA on http://127.0.0.1:8000 ...
-start "TRACE//QA Server" cmd /k "cd /d "%~dp0" && .venv\Scripts\python.exe -m uvicorn backend.app:app --host 127.0.0.1 --port 8000"
-timeout /t 3 /nobreak >nul
-start "TRACE//QA" http://127.0.0.1:8000
-
+echo [4/4] Starting TRACE//QA server on http://127.0.0.1:8000 ...
+echo       (Keep this window open while using TRACE//QA. Press Ctrl+C to stop.)
 echo.
-echo TRACE//QA is running.
-echo Keep this terminal window open while using the application.
-echo.
+start "" "http://127.0.0.1:8000"
+call ".venv\Scripts\python.exe" -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
