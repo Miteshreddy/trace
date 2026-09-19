@@ -299,6 +299,8 @@ async def create_run(req: RunCreate) -> RunState:
         target_url=normalized_url,
         original_target_url=original_url,
         normalized_target_url=normalized_url,
+        current_url=normalized_url,
+        last_observed_url=normalized_url,
     )
     # Patch request to use normalized URL
     req_normalized = req.model_copy(update={"target_url": normalized_url})

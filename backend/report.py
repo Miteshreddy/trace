@@ -21,7 +21,10 @@ def generate_report(
     journey: dict[str, Any] | None = None,
     original_target_url: str = "",
     normalized_target_url: str = "",
+    current_url: str = "",
     final_url: str = "",
+    redirect_chain: list[dict[str, Any]] | None = None,
+    subgoals: list[dict[str, Any]] | None = None,
     navigation_state: str = "",
     navigation_diagnostics: dict[str, Any] | None = None,
     goal_verification_evidence: str = "",
@@ -33,7 +36,10 @@ def generate_report(
         "target_url": target_url,
         "original_target_url": original_target_url or target_url,
         "normalized_target_url": normalized_target_url or target_url,
+        "current_url": current_url or final_url or target_url,
         "final_url": final_url or target_url,
+        "redirect_chain": redirect_chain or [],
+        "subgoals": subgoals or [],
         "navigation_state": navigation_state or "usable",
         "navigation_diagnostics": navigation_diagnostics or {},
         "goal_verification_evidence": goal_verification_evidence,
@@ -45,6 +51,7 @@ def generate_report(
         "journey": journey or {"nodes": [], "edges": []},
     }
     (run_dir / "report.json").write_text(json.dumps(data, indent=2), encoding="utf-8")
+
 
     # 2. Build Issue Cards HTML
     issue_cards = []

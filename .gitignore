@@ -5,3 +5,4 @@ __pycache__/
 .data/
 data/runs/*
 !data/runs/.gitkeep
+scratch/

@@ -270,3 +270,63 @@ class LocalGemmaProvider(AIProvider):
             lat = (time.perf_counter() - start_time) * 1000.0
             self.record_failure(str(e))
             raise
+
+    def criticize_proposal(
+        self,
+        goal: str,
+        current_url: str,
+        history: list[dict[str, Any]],
+        proposals: list[dict[str, Any]],
+        ui_map: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """
+        Textual critic: evaluates action proposals against goal and observable page state.
+        If local weights are available, runs prompt; otherwise uses deterministic heuristic critic.
+        """
+        # 1. Deterministic heuristic check on proposals
+        for prop in proposals:
+            act = prop.get("action")
+            eid = prop.get("element_id")
+            # If proposing finish without proof
+            if act == "finish" or prop.get("goal_complete"):
+                return {
+                    "verdict": "reject_finish",
+                    "reason": "Critic veto: completing run requires observable proof of all user subgoals.",
+                    "recommended_action": "scroll",
+                    "confidence": 0.85,
+                }
+            # If element doesn't exist in UI map
+            if eid and not any(e.get("id") == eid for e in ui_map):
+                return {
+                    "verdict": "stale_element",
+                    "reason": f"Critic warning: target element {eid} not found in current visible UI map.",
+                    "recommended_action": "wait",
+                    "confidence": 0.9,
+                }
+
+        # 2. If model loaded, perform neural critique
+        if self.ensure_loaded():
+            try:
+                prompt = (
+                    f"<start_of_turn>user\n"
+                    f"Evaluate proposed browser actions for QA testing.\n"
+                    f"Goal: {goal}\nURL: {current_url}\n"
+                    f"Proposals: {json.dumps(proposals)}\n"
+                    f"Decide which proposal is best. Respond ONLY with JSON: "
+                    f'{{"verdict":"agree|prefer_a|prefer_b","best_proposal_index":0,"reason":"..."}}\n'
+                    f"<end_of_turn>\n<start_of_turn>model\n"
+                )
+                raw = _run_inference(prompt, max_tokens=150)
+                parsed = self._parse_json_response(raw)
+                if parsed and "verdict" in parsed:
+                    return parsed
+            except Exception:
+                pass
+
+        # 3. Default critique
+        return {
+            "verdict": "agree",
+            "reason": "Proposals are consistent with interactive elements on page.",
+            "confidence": 0.8,
+        }
+

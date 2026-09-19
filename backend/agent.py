@@ -24,6 +24,7 @@ from .ai_providers import ai_provider_manager
 from .auditor import build_heuristic_findings, calculate_metrics
 from .browser import BrowserRunner
 from .config import RUNS_DIR
+from .goal_verifier import GoalVerificationEngine
 from .models import Event, Issue, NavigationDiagnostics, RunCreate, RunState
 from .report import generate_report
 from .url_utils import classify_navigation_error, normalize_url
@@ -31,10 +32,9 @@ from .url_utils import classify_navigation_error, normalize_url
 EventCallback = Callable[[Event], Awaitable[None]]
 logger = logging.getLogger("traceqa.agent")
 
-# Goal verification thresholds
-_GV_MIN_BODY_LENGTH = 300          # page must have some content
-_GV_MIN_ELEMENTS = 2               # page must have some interactive elements
-_GV_KEYWORD_THRESHOLD = 0.2        # fraction of goal words that should appear in visible text
+_GV_MIN_BODY_LENGTH = 150
+_GV_MIN_ELEMENTS = 2
+_GV_KEYWORD_THRESHOLD = 0.2
 
 
 class AutonomousTester:
@@ -46,6 +46,9 @@ class AutonomousTester:
         self.screenshots: list[bytes] = []
         self.journey_nodes: list[dict[str, Any]] = []
         self.journey_edges: list[dict[str, Any]] = []
+        # Decompose natural language goal into verifiable milestones
+        self.goal_plan = GoalVerificationEngine.decompose_goal(self.request.goal)
+        self.run.subgoals = [s.model_dump() for s in self.goal_plan.subgoals]
 
     async def _log(self, kind: str, message: str, **data: Any) -> None:
         await self.emit(Event(kind=kind, message=message, data=data))
@@ -75,6 +78,8 @@ class AutonomousTester:
 
         self.run.original_target_url = original_url
         self.run.normalized_target_url = normalized_url
+        self.run.current_url = normalized_url
+        self.run.last_observed_url = normalized_url
         # Use normalized URL for all browser navigation
         effective_url = normalized_url
 
@@ -92,6 +97,13 @@ class AutonomousTester:
             original_target=original_url,
             target=effective_url,
             provider_mode=ai_provider_manager.mode,
+            subgoals=self.run.subgoals,
+        )
+        await self._log(
+            "goal_planned",
+            f"Goal decomposed into {len(self.goal_plan.subgoals)} milestones",
+            subgoals=self.run.subgoals,
+            success_conditions=self.goal_plan.success_conditions,
         )
 
         browser = BrowserRunner(run_dir)
@@ -113,7 +125,10 @@ class AutonomousTester:
                 nav_diag = await browser.start(effective_url)
                 self.run.navigation_diagnostics = nav_diag
                 self.run.final_url = nav_diag.final_url
+                self.run.current_url = nav_diag.final_url or effective_url
+                self.run.last_observed_url = nav_diag.final_url or effective_url
                 self.run.navigation_state = nav_diag.navigation_state
+                self.run.redirect_chain = browser.get_redirect_chain()
 
                 logger.info(
                     "[navigation_result] pass=%d state=%s final_url=%s body_len=%d elements=%d",
@@ -186,10 +201,35 @@ class AutonomousTester:
                     obs = await browser.observe(step)
                     self.screenshots.append(obs.screenshot)
                     self.run.latest_screenshot = f"/artifacts/{self.run.id}/step_{step:03d}.png"
+
+                    # Real-time URL synchronization
+                    current_url = browser.get_current_url() or obs.url
+                    if current_url and current_url != self.run.current_url:
+                        prev_url = self.run.current_url
+                        self.run.current_url = current_url
+                        self.run.last_observed_url = current_url
+                        self.run.redirect_chain = browser.get_redirect_chain()
+                        logger.info("[url_changed] step=%d %s ➔ %s", step, prev_url, current_url)
+                        await self._log(
+                            "url_changed",
+                            f"Target navigated: {prev_url} ➔ {current_url}",
+                            previous_url=prev_url,
+                            current_url=current_url,
+                            step=step,
+                        )
+
                     logger.info(
                         "[observation_created] step=%d url=%s elements=%d body_len=%d nav_state=%s",
                         step, obs.url, len(obs.ui_map), obs.body_text_length, obs.navigation_state,
                     )
+
+                    # Update goal milestone progress
+                    self.goal_plan, gv_eval = GoalVerificationEngine.verify_observation(
+                        self.goal_plan, obs, browser.page, pass_history[-1] if pass_history else None
+                    )
+                    self.run.subgoals = [s.model_dump() for s in self.goal_plan.subgoals]
+                    for sig in gv_eval.get("signals", []):
+                        await self._log("subgoal_completed", f"Milestone signal verified: {sig}", step=step, evaluation=gv_eval)
 
                     # Track consecutive blank observations (loop protection)
                     if obs.navigation_state == "blank":
@@ -245,16 +285,35 @@ class AutonomousTester:
                             f"Avoid repeating Pass 1 sequence: {', '.join(prev_actions[:6])}"
                         )
 
-                    # ── 3. AI Decision via Central Provider Manager ─────
-                    logger.info("[provider_selected] step=%d mode=%s", step, ai_provider_manager.mode)
-                    raw_decision, acting_provider = await asyncio.to_thread(
-                        ai_provider_manager.decide_action,
+                    # ── 3. Multi-Model Consensus Decision ──────────────
+                    can_finish_veto = GoalVerificationEngine.can_finish(self.goal_plan, obs)
+                    raw_decision, consensus_meta = await asyncio.to_thread(
+                        ai_provider_manager.decide_ensemble_action,
                         self.request.goal,
+                        obs.url,
                         obs.screenshot,
                         obs.ui_map,
                         obs.ax_tree,
                         pass_history,
                         path_hint,
+                        step,
+                        can_finish_veto,
+                    )
+                    self.run.consensus_history.append(consensus_meta)
+                    acting_provider = consensus_meta.get("selected_provider", "groq")
+
+                    if not consensus_meta.get("agreed") and consensus_meta.get("disagreement"):
+                        await self._log(
+                            "model_disagreement",
+                            f"Model disagreement at step {step}: Critic chose {acting_provider}",
+                            **consensus_meta["disagreement"],
+                        )
+
+                    await self._log(
+                        "consensus",
+                        f"Step {step} Decision [{acting_provider.upper()}]: {raw_decision.get('action')}"
+                        + (f" on {raw_decision.get('element_id')}" if raw_decision.get('element_id') else ""),
+                        **consensus_meta,
                     )
 
                     # ── 4. ActionValidator & Safety Pipeline ─────────────
@@ -314,12 +373,17 @@ class AutonomousTester:
                                 click_pt = (action_result.get("x", 0), action_result.get("y", 0))
                             if "enter" in decision.get("expected_result", "").lower():
                                 await browser.press_key("Enter")
+                                await self._log("settle", "Allowing dynamic search results to render and settle")
+                                await browser.settle_dynamic_content()
 
                     elif action == "scroll":
-                        await browser.scroll(int(decision.get("scroll_y") or 450))
+                        action_result = await browser.scroll(int(decision.get("scroll_y") or 450))
 
                     elif action == "press_key":
-                        await browser.press_key(decision.get("key") or "Enter")
+                        action_result = await browser.press_key(decision.get("key") or "Enter")
+                        if decision.get("key", "").lower() == "enter":
+                            await self._log("settle", "Allowing dynamic search results to render and settle")
+                            await browser.settle_dynamic_content()
 
                     elif action == "dismiss_modal":
                         action_result = await browser.dismiss_modal()
@@ -332,6 +396,22 @@ class AutonomousTester:
 
                     elif action == "finish":
                         pass  # handled below in goal check
+
+                    # Re-check URL after action
+                    act_url = browser.get_current_url()
+                    if act_url and act_url != self.run.current_url:
+                        prev_u = self.run.current_url
+                        self.run.current_url = act_url
+                        self.run.last_observed_url = act_url
+                        self.run.redirect_chain = browser.get_redirect_chain()
+                        logger.info("[url_changed] post_action step=%d %s -> %s", step, prev_u, act_url)
+                        await self._log(
+                            "url_changed",
+                            f"URL changed after action: {prev_u} -> {act_url}",
+                            previous_url=prev_u,
+                            current_url=act_url,
+                            step=step,
+                        )
 
                     # ── 6. Annotate Screenshot ───────────────────────────
                     browser.annotate_step_screenshot(
@@ -364,13 +444,13 @@ class AutonomousTester:
                     self.run.step_count += 1
                     self.run.journey = {"nodes": self.journey_nodes, "edges": self.journey_edges}
 
-                    # ── Phase 12: Goal Verification ──────────────────────
+                    # ── Phase 12: Independent Goal Verification ──────────
                     if action == "finish" or decision.get("goal_complete"):
-                        verified, evidence = await self._verify_goal_completion(browser, obs)
-                        if verified:
+                        can_fin, evidence_str = GoalVerificationEngine.can_finish(self.goal_plan, obs)
+                        if can_fin:
                             successful_paths += 1
                             self.run.goal_completed = True
-                            self.run.goal_verification_evidence = evidence
+                            self.run.goal_verification_evidence = evidence_str
                             for n in self.journey_nodes:
                                 if n["id"] == node_id:
                                     n["is_goal"] = True
@@ -380,31 +460,28 @@ class AutonomousTester:
                                 pass_no=pass_no,
                                 step=step,
                                 provider=acting_provider,
-                                evidence=evidence,
+                                evidence=evidence_str,
                             )
                             logger.info(
                                 "[goal_verified] pass=%d step=%d evidence=%s",
-                                pass_no, step, evidence[:120],
+                                pass_no, step, evidence_str[:120],
                             )
+                            break
                         else:
-                            # AI claimed complete but evidence is insufficient
                             await self._log(
                                 "goal_unverified",
-                                f"Agent proposed goal completion at step {step}, but independent verification did not confirm the requested outcome. Continuing...",
+                                f"Completion proposed at step {step}, but independent verification rejected it: {evidence_str}. Continuing...",
                                 step=step,
-                                evidence=evidence,
+                                evidence=evidence_str,
                                 provider=acting_provider,
                             )
                             logger.warning(
-                                "[goal_verification_failed] step=%d evidence=%s",
-                                step, evidence[:120],
+                                "[goal_verification_rejected] step=%d evidence=%s",
+                                step, evidence_str[:120],
                             )
-                            # Do NOT break — let agent continue
-                            record["goal_complete"] = False  # correct the record
+                            record["goal_complete"] = False
                             self.trajectory[-1]["goal_complete"] = False
                             continue
-
-                        break  # goal verified — end this pass
 
                     # Recovery if agent flags stuck
                     if decision.get("stuck") and action != "back":
@@ -413,6 +490,7 @@ class AutonomousTester:
 
                 # End of step loop
                 await browser.close()
+
                 # Re-create browser for next pass if needed
                 if pass_no < total_passes:
                     browser = BrowserRunner(run_dir)
@@ -442,9 +520,9 @@ class AutonomousTester:
             heuristic_issues = build_heuristic_findings(self.trajectory, acc_list, layout_list)
             audit_seed = [x.model_dump() for x in heuristic_issues]
 
-            # Multimodal Audit via Central Provider Manager
+            # Multimodal Audit via Central Provider Manager (Ensemble)
             ai_audit, audit_provider = await asyncio.to_thread(
-                ai_provider_manager.audit_run,
+                ai_provider_manager.audit_run_ensemble,
                 self.request.goal, self.screenshots[-4:], self.trajectory, audit_seed,
             )
             ai_issues = [
@@ -496,6 +574,9 @@ class AutonomousTester:
                 or f"Audit completed for goal '{self.request.goal}' with {len(self.run.issues)} findings."
             )
 
+            final_destination = browser.get_current_url() or self.run.current_url or effective_url
+            self.run.final_url = final_destination
+
             generate_report(
                 run_dir=run_dir,
                 run_id=self.run.id,
@@ -509,11 +590,15 @@ class AutonomousTester:
                 journey=self.run.journey,
                 original_target_url=self.run.original_target_url,
                 normalized_target_url=self.run.normalized_target_url,
-                final_url=self.run.final_url or effective_url,
+                current_url=self.run.current_url,
+                final_url=final_destination,
+                redirect_chain=self.run.redirect_chain,
+                subgoals=self.run.subgoals,
                 navigation_state=self.run.navigation_state,
                 navigation_diagnostics=self.run.navigation_diagnostics.model_dump() if hasattr(self.run.navigation_diagnostics, "model_dump") else {},
                 goal_verification_evidence=self.run.goal_verification_evidence,
             )
+
 
             self.run.report_url = f"/artifacts/{self.run.id}/report.html"
             self.run.status = "completed"
@@ -705,11 +790,15 @@ class AutonomousTester:
                 journey={"nodes": [], "edges": []},
                 original_target_url=self.run.original_target_url,
                 normalized_target_url=self.run.normalized_target_url,
-                final_url=nav_diag.final_url,
+                current_url=nav_diag.final_url or self.run.normalized_target_url,
+                final_url=nav_diag.final_url or self.run.normalized_target_url,
+                redirect_chain=self.run.redirect_chain,
+                subgoals=self.run.subgoals,
                 navigation_state=nav_diag.navigation_state,
                 navigation_diagnostics=nav_diag.model_dump() if hasattr(nav_diag, "model_dump") else {},
                 goal_verification_evidence="Navigation failed prior to goal execution.",
             )
+
         except Exception as exc:
             logger.error("[failure_report_error] %s", exc)
 

@@ -31,7 +31,7 @@ class GroqProvider(AIProvider):
         self.client_2: OpenAI | None = None
         # Determine if this model supports image input
         self.supports_vision: bool = any(
-            k in GROQ_MODEL.lower() for k in ["llama-4-scout", "llama-4-maverick", "vision"]
+            k in GROQ_MODEL.lower() for k in ["llama-4-scout", "llama-4-maverick", "vision", "qwen"]
         )
 
         if self.is_configured():
@@ -55,9 +55,14 @@ class GroqProvider(AIProvider):
             with Image.open(io.BytesIO(image_bytes)) as img:
                 img = img.convert("RGB")
                 w, h = img.size
+                # Ensure minimum dimension is >= 32px for vision models
+                if w < 32 or h < 32:
+                    scale_up = max(32 / max(w, 1), 32 / max(h, 1))
+                    img = img.resize((int(w * scale_up), int(h * scale_up)), Image.Resampling.NEAREST)
+                    w, h = img.size
                 if max(w, h) > max_dim:
                     scale = max_dim / max(w, h)
-                    img = img.resize((int(w * scale), int(h * scale)), Image.Resampling.LANCZOS)
+                    img = img.resize((max(32, int(w * scale)), max(32, int(h * scale))), Image.Resampling.LANCZOS)
                 buf = io.BytesIO()
                 img.save(buf, format="JPEG", quality=70, optimize=True)
                 encoded = base64.b64encode(buf.getvalue()).decode("ascii")

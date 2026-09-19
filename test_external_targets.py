@@ -63,8 +63,16 @@ class TestExternalTargetPipeline(unittest.TestCase):
     def test_c_public_dynamic_website(self):
         """TEST C: Public dynamic website (httpbin.org)."""
         url = f"{BASE}/api/check-target?url={urllib.parse.quote('https://httpbin.org/')}&browser_check=true"
-        resp = urllib.request.urlopen(url, timeout=20)
-        data = json.loads(resp.read().decode())
+        data = {}
+        for _ in range(3):
+            try:
+                resp = urllib.request.urlopen(url, timeout=30)
+                data = json.loads(resp.read().decode())
+                if data.get("reachable") and data.get("browser_reachable"):
+                    break
+            except Exception:
+                pass
+            time.sleep(2)
         self.assertTrue(data.get("reachable"))
         self.assertTrue(data.get("browser_reachable"))
         self.assertEqual(data.get("status_code"), 200)

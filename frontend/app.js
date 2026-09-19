@@ -519,9 +519,18 @@
     const stopBtn = $('#btnStopRun');
 
     const effectiveTarget = state.targetUrl || (state.runData && (state.runData.normalized_target_url || state.runData.target_url)) || '';
+    const activeUrl = (state.runData && (state.runData.current_url || state.runData.final_url)) || effectiveTarget;
     if (liveGoal && state.goal) liveGoal.textContent = state.goal;
-    if (liveAddress && effectiveTarget) liveAddress.textContent = '⌁   ' + effectiveTarget;
-    if (openLink && effectiveTarget) openLink.href = effectiveTarget;
+    if (liveAddress && effectiveTarget) {
+      if (activeUrl && activeUrl !== effectiveTarget) {
+        liveAddress.textContent = `Target: ${effectiveTarget} ➔ Current: ${activeUrl}`;
+        liveAddress.title = `Original: ${effectiveTarget}\nCurrent: ${activeUrl}`;
+      } else {
+        liveAddress.textContent = '⌁   ' + effectiveTarget;
+        liveAddress.title = `Target: ${effectiveTarget}`;
+      }
+    }
+    if (openLink && activeUrl) openLink.href = activeUrl;
 
     if (stopBtn) {
       stopBtn.onclick = async () => {
@@ -612,16 +621,19 @@
     const cursorLabel = $('#liveCursorLabel');
 
     const effectiveTarget = run.normalized_target_url || run.target_url || state.targetUrl || '';
+    const activeUrl = run.current_url || run.final_url || effectiveTarget;
     const openLink = $('#liveBrowserOpenLink');
-    if (openLink && effectiveTarget) {
-      openLink.href = effectiveTarget;
+    if (openLink && activeUrl) {
+      openLink.href = activeUrl;
+      openLink.title = activeUrl !== effectiveTarget ? `Open current: ${activeUrl}` : `Open target website`;
     }
 
     const liveAddress = $('#liveBrowserAddress');
     if (liveAddress && effectiveTarget) {
-      if (run.final_url && run.final_url !== effectiveTarget) {
-        liveAddress.textContent = `⌁ ${effectiveTarget}  ➔  ${run.final_url}`;
-        liveAddress.title = `Target: ${effectiveTarget}\nObserved Final: ${run.final_url}`;
+      if (activeUrl && activeUrl !== effectiveTarget) {
+        const prefix = (run.status === 'completed' || run.status === 'success') ? 'Final' : 'Current';
+        liveAddress.textContent = `Target: ${effectiveTarget} ➔ ${prefix}: ${activeUrl}`;
+        liveAddress.title = `Original: ${effectiveTarget}\n${prefix}: ${activeUrl}`;
       } else {
         liveAddress.textContent = `⌁ ${effectiveTarget}`;
         liveAddress.title = `Target: ${effectiveTarget}`;
@@ -634,18 +646,56 @@
 
     if (countEl) countEl.textContent = `${events.length} events`;
 
-    // Render streaming events
+    // Render streaming events with rich role/consensus badges
     if (feed && events.length) {
-      feed.innerHTML = events.slice(-25).map((ev, i) => `
-        <div class="activity-item done">
-          <i>${ev.step || (i + 1)}</i>
-          <div>
-            <b>${escapeHtml(ev.kind || 'Action')}</b>
-            <small>${escapeHtml(ev.message || '')}</small>
+      feed.innerHTML = events.slice(-30).map((ev, i) => {
+        let badgeHtml = '';
+        const kind = (ev.kind || '').toLowerCase();
+        if (kind === 'consensus') {
+          badgeHtml = '<span class="activity-badge badge-consensus">Consensus</span>';
+        } else if (kind === 'model_disagreement') {
+          badgeHtml = '<span class="activity-badge badge-disagree">Disagreement</span>';
+        } else if (kind === 'subgoal_completed') {
+          badgeHtml = '<span class="activity-badge badge-subgoal">Subgoal</span>';
+        } else if (kind === 'url_changed') {
+          badgeHtml = '<span class="activity-badge badge-url">URL</span>';
+        } else if (kind === 'goal_verification') {
+          badgeHtml = '<span class="activity-badge badge-verifier">Verify</span>';
+        } else if (kind === 'recovery') {
+          badgeHtml = '<span class="activity-badge badge-recovery">Recovery</span>';
+        }
+
+        return `
+          <div class="activity-item done revealed">
+            <i>${ev.step || (i + 1)}</i>
+            <div>
+              <b>${badgeHtml}${escapeHtml(ev.kind || 'Action')}</b>
+              <small>${escapeHtml(ev.message || '')}</small>
+            </div>
           </div>
-        </div>
-      `).join('');
+        `;
+      }).join('');
       feed.scrollTop = feed.scrollHeight;
+    }
+
+    // Render objective milestones (subgoals)
+    const subgoalsWrap = $('#liveSubgoalsWrap');
+    const subgoalsList = $('#liveSubgoalsList');
+    if (subgoalsWrap && subgoalsList) {
+      if (run.subgoals && run.subgoals.length > 0) {
+        subgoalsWrap.style.display = 'block';
+        subgoalsList.innerHTML = run.subgoals.map((sg) => `
+          <div class="subgoal-item ${sg.verified ? 'verified' : ''}">
+            <span class="subgoal-icon">${sg.verified ? '✓' : '⏳'}</span>
+            <div class="subgoal-desc">
+              <b>${escapeHtml(sg.description)}</b>
+              ${sg.evidence && sg.evidence.length ? `<small style="display:block; color:#63d8a1; font-size:7.5px; margin-top:2px;">${escapeHtml(sg.evidence[0])}</small>` : ''}
+            </div>
+          </div>
+        `).join('');
+      } else {
+        subgoalsWrap.style.display = 'none';
+      }
     }
 
     // Update steps based on progress

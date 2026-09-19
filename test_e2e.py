@@ -107,7 +107,8 @@ def test_autonomous_run():
         print(f"  t={i*5}s status={status} steps={steps} events={n_events}")
         if events:
             last_ev = events[-1]
-            print(f"    Last: [{last_ev['kind']}] {last_ev['message'][:90]}")
+            safe_msg = last_ev['message'][:90].encode('ascii', 'replace').decode('ascii')
+            print(f"    Last: [{last_ev['kind']}] {safe_msg}")
         if status in ("completed", "failed", "cancelled"):
             final_state = state
             break

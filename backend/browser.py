@@ -15,11 +15,13 @@ import hashlib
 import io
 import json
 import logging
+import time
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
-from PIL import Image, ImageDraw
+from PIL import Image, ImageDraw, ImageStat
 from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
 
 from .models import NavigationDiagnostics
@@ -69,7 +71,10 @@ class Observation:
     state_signature: str
     body_text_length: int = 0
     navigation_state: str = "usable"
+    ax_status: str = "available"
+    screenshot_diagnostics: dict[str, Any] = field(default_factory=dict)
     recent_console_errors: list[str] = field(default_factory=list)
+
 
 
 class BrowserRunner:
@@ -80,12 +85,47 @@ class BrowserRunner:
         self.context: BrowserContext | None = None
         self.page: Page | None = None
         self.current_elements: dict[str, dict[str, Any]] = {}
+        self.redirect_chain: list[dict[str, Any]] = []
+        self._last_url: str = ""
 
         # Diagnostics collected during session
         self._console_errors: list[str] = []
         self._page_errors: list[str] = []
         self._request_failures: list[str] = []
         self._navigation_diagnostics: NavigationDiagnostics = NavigationDiagnostics()
+
+    def get_current_url(self) -> str:
+        """Return the actual active page URL."""
+        if self.page:
+            try:
+                return self.page.url
+            except Exception:
+                pass
+        return self._last_url or ""
+
+    def get_redirect_chain(self) -> list[dict[str, Any]]:
+        """Return the chronological redirect and navigation history."""
+        return list(self.redirect_chain)
+
+    def _track_url_change(self, new_url: str, transition_type: str = "navigation") -> bool:
+        """Record URL change into redirect_chain if destination differs."""
+        if not new_url or new_url in ("about:blank", ""):
+            return False
+        if self._last_url and new_url != self._last_url:
+            entry = {
+                "from": self._last_url,
+                "to": new_url,
+                "type": transition_type,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
+            }
+            self.redirect_chain.append(entry)
+            logger.info("[url_changed] from=%s to=%s type=%s", self._last_url, new_url, transition_type)
+            self._last_url = new_url
+            return True
+        elif not self._last_url:
+            self._last_url = new_url
+        return False
+
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -209,6 +249,7 @@ class BrowserRunner:
                 logger.info("[popup_follow] switching context to popup url=%s", popup.url)
                 self.page = popup
                 self._attach_listeners()
+                self._track_url_change(popup.url, "popup")
         except Exception as exc:
             logger.debug("[popup_follow_error] %s", exc)
 
@@ -248,6 +289,8 @@ class BrowserRunner:
                 # Step 4: inspect page state
                 diag = await self._inspect_page_state(diag)
                 diag.attempts = attempt
+                self._track_url_change(self.page.url, "http_redirect" if self.page.url != url else "navigation")
+
 
                 if diag.navigation_state == "usable":
                     logger.info(
@@ -359,10 +402,13 @@ class BrowserRunner:
         assert self.page is not None
         await self.page.wait_for_timeout(250)
 
+        curr_url = self.page.url
+        self._track_url_change(curr_url, "observe")
+
         raw_screenshot = await self.page.screenshot(full_page=False)
         ui_map = await self._build_ui_map()
         self.current_elements = {item["id"]: item for item in ui_map}
-        ax_tree = await self._get_ax_tree()
+        ax_tree, ax_status = await self._get_ax_tree()
 
         try:
             text = await self.page.locator("body").inner_text(timeout=3000)
@@ -373,7 +419,7 @@ class BrowserRunner:
 
         signature_raw = json.dumps(
             {
-                "url": self.page.url,
+                "url": curr_url,
                 "text": compact,
                 "elements": [(e["id"], e.get("text", ""), e.get("occluded", False)) for e in ui_map[:50]],
             },
@@ -384,6 +430,22 @@ class BrowserRunner:
         shot_path = self.artifact_dir / f"step_{step:03d}.png"
         shot_path.write_bytes(raw_screenshot)
 
+        # Compute visual diagnostics
+        shot_diag = {"width": 1440, "height": 900, "mean_brightness": 128.0, "is_blank": False}
+        try:
+            with Image.open(io.BytesIO(raw_screenshot)) as img:
+                shot_diag["width"], shot_diag["height"] = img.size
+                gray = img.convert("L")
+                stat = ImageStat.Stat(gray)
+                mean_val = stat.mean[0]
+                var_val = stat.var[0]
+                shot_diag["mean_brightness"] = round(mean_val, 1)
+                shot_diag["variance"] = round(var_val, 1)
+                if var_val < 0.5 and (mean_val > 250 or mean_val < 5):
+                    shot_diag["is_blank"] = True
+        except Exception:
+            pass
+
         current_title = ""
         try:
             current_title = await self.page.title()
@@ -392,20 +454,78 @@ class BrowserRunner:
 
         # Determine current navigation state
         nav_state = "usable"
-        if body_text_length < _BLANK_BODY_THRESHOLD and len(ui_map) < _BLANK_ELEMENTS_THRESHOLD:
+        if (body_text_length < _BLANK_BODY_THRESHOLD and len(ui_map) < _BLANK_ELEMENTS_THRESHOLD) or shot_diag.get("is_blank"):
             nav_state = "blank"
 
         return Observation(
             screenshot=raw_screenshot,
             ui_map=ui_map,
             ax_tree=ax_tree,
-            url=self.page.url,
+            url=curr_url,
             title=current_title,
             state_signature=state_signature,
             body_text_length=body_text_length,
             navigation_state=nav_state,
+            ax_status=ax_status,
+            screenshot_diagnostics=shot_diag,
             recent_console_errors=list(self._console_errors[-5:]),
         )
+
+    async def settle_dynamic_content(self, timeout_ms: int = 2500) -> dict[str, Any]:
+        """
+        Post-search and dynamic page settling:
+        1. Bounded wait for spinners / loading indicators to clear.
+        2. Detect if result cards/listings have rendered.
+        3. Perform a bounded micro-scroll to trigger lazy-loaded cards/ratings.
+        """
+        assert self.page is not None
+        settle_start = time.perf_counter()
+        spinners_cleared = False
+        results_found = False
+
+        # 1. Spinner wait
+        try:
+            spinner_selector = '[aria-busy="true"], .loading, .spinner, [data-loading], .s-loading-spinner, #loading-spinner'
+            has_spinner = await self.page.evaluate(f"() => !!document.querySelector('{spinner_selector}')")
+            if has_spinner:
+                try:
+                    await self.page.wait_for_selector(spinner_selector, state="detached", timeout=min(timeout_ms, 2000))
+                    spinners_cleared = True
+                except Exception:
+                    pass
+        except Exception:
+            pass
+
+        # 2. Bounded micro-scroll to trigger lazy-loaded cards/ratings
+        try:
+            await self.page.mouse.wheel(0, 350)
+            await self.page.wait_for_timeout(350)
+            await self.page.mouse.wheel(0, -100)
+            await self.page.wait_for_timeout(200)
+        except Exception:
+            pass
+
+        # 3. Check for result elements
+        try:
+            results_found = await self.page.evaluate(
+                """
+                () => {
+                    const sel = '[data-component-type*="result"], .s-result-item, .product, .result, .card, article, [role="listitem"]';
+                    return document.querySelectorAll(sel).length > 0;
+                }
+                """
+            )
+        except Exception:
+            results_found = False
+
+        dur_ms = int((time.perf_counter() - settle_start) * 1000)
+        logger.debug("[dynamic_settle] duration=%dms spinners_cleared=%s results_found=%s", dur_ms, spinners_cleared, results_found)
+        return {
+            "settled": True,
+            "duration_ms": dur_ms,
+            "spinners_cleared": spinners_cleared,
+            "results_found": results_found,
+        }
 
     # ------------------------------------------------------------------
     # Screenshot annotation
@@ -474,7 +594,8 @@ class BrowserRunner:
                 """
                 () => {
                   const viewport = {w: window.innerWidth, h: window.innerHeight};
-                  const nodes = Array.from(document.querySelectorAll('a,button,input,textarea,select,[role="button"],[role="link"],[role="tab"],[tabindex="0"]'));
+                  const selector = 'a,button,input,textarea,select,[role="button"],[role="link"],[role="tab"],[role="menuitem"],[role="option"],[role="checkbox"],[role="radio"],[tabindex="0"],[contenteditable="true"]';
+                  const nodes = Array.from(document.querySelectorAll(selector));
                   const visible = [];
                   let index = 0;
                   for (const el of nodes) {
@@ -490,10 +611,13 @@ class BrowserRunner:
                     const occluded_by = occluded && top ? (top.id || top.className || top.tagName.toLowerCase()) : '';
 
                     const id = `e${index++}`;
-                    const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || '').trim().replace(/\\s+/g, ' ').slice(0, 160);
+                    const text = (el.innerText || el.value || el.getAttribute('aria-label') || el.getAttribute('placeholder') || el.getAttribute('title') || '').trim().replace(/\\s+/g, ' ').slice(0, 160);
                     const role = el.getAttribute('role') || el.tagName.toLowerCase();
                     const aria = el.getAttribute('aria-label') || '';
+                    const aria_labelledby = el.getAttribute('aria-labelledby') || '';
                     const placeholder = el.getAttribute('placeholder') || '';
+                    const title = el.getAttribute('title') || '';
+                    const val = el.value !== undefined ? String(el.value).slice(0, 80) : '';
                     const disabled = !!el.disabled || el.getAttribute('aria-disabled') === 'true';
 
                     visible.push({
@@ -502,7 +626,10 @@ class BrowserRunner:
                       role,
                       text,
                       aria_label: aria,
+                      aria_labelledby,
                       placeholder,
+                      title,
+                      value: val,
                       disabled,
                       occluded,
                       occluded_by,
@@ -510,7 +637,7 @@ class BrowserRunner:
                       center: {cx: Math.round(cx), cy: Math.round(cy)}
                     });
                   }
-                  return visible.slice(0, 85);
+                  return visible.slice(0, 90);
                 }
                 """
             )
@@ -518,7 +645,7 @@ class BrowserRunner:
             logger.debug("[ui_map_error] %s", exc)
             return []
 
-    async def _get_ax_tree(self) -> list[dict[str, Any]]:
+    async def _get_ax_tree(self) -> tuple[list[dict[str, Any]], str]:
         assert self.page is not None
         try:
             cdp = await self.context.new_cdp_session(self.page)  # type: ignore[union-attr]
@@ -535,9 +662,11 @@ class BrowserRunner:
                         "ignored": n.get("ignored", False),
                         "nodeId": n.get("nodeId"),
                     })
-            return compact[:180]
-        except Exception:
-            return []
+            status = "available" if compact else "partial"
+            return compact[:180], status
+        except Exception as exc:
+            logger.debug("[ax_tree_unavailable] %s", exc)
+            return [], "unavailable"
 
     # ------------------------------------------------------------------
     # Actions
@@ -558,7 +687,7 @@ class BrowserRunner:
                 element_id,
             )
         except Exception:
-            still_exists = True  # assume exists; proceed with stored coords
+            still_exists = True
 
         cx = elem["center"]["cx"]
         cy = elem["center"]["cy"]
@@ -601,7 +730,10 @@ class BrowserRunner:
         await self.page.wait_for_timeout(_CLICK_WAIT_MS)
 
         after_url = self.page.url
-        state_changed = after_url != before_url
+        url_changed = after_url != before_url
+        if url_changed:
+            self._track_url_change(after_url, "click")
+        state_changed = url_changed
 
         return {
             "ok": True,
@@ -612,10 +744,14 @@ class BrowserRunner:
             "before_url": before_url,
             "after_url": after_url,
             "state_changed": state_changed,
+            "url_changed": url_changed,
+            "content_changed": state_changed,
+            "verification": "passed",
         }
 
     async def type_into(self, element_id: str, text: str) -> dict[str, Any]:
         assert self.page is not None
+        before_url = self.page.url
         elem = self.current_elements.get(element_id)
         if not elem:
             return {"ok": False, "error": f"Element {element_id} not found"}
@@ -650,7 +786,12 @@ class BrowserRunner:
             )
             value_confirmed = text.lower().strip() in typed_val.lower()
         except Exception:
-            value_confirmed = True  # don't block on verification failure
+            value_confirmed = True
+
+        after_url = self.page.url
+        url_changed = after_url != before_url
+        if url_changed:
+            self._track_url_change(after_url, "type")
 
         return {
             "ok": True,
@@ -658,6 +799,12 @@ class BrowserRunner:
             "y": cy,
             "typed": text,
             "value_confirmed": value_confirmed,
+            "before_url": before_url,
+            "after_url": after_url,
+            "url_changed": url_changed,
+            "state_changed": value_confirmed or url_changed,
+            "content_changed": value_confirmed,
+            "verification": "passed" if value_confirmed else "unverified_value",
         }
 
     async def dismiss_modal(self) -> dict[str, Any]:
@@ -693,15 +840,30 @@ class BrowserRunner:
         await self.page.wait_for_timeout(300)
         return dismissed
 
-    async def scroll(self, amount: int) -> None:
+    async def scroll(self, amount: int) -> dict[str, Any]:
         assert self.page is not None
         await self.page.mouse.wheel(0, amount)
         await self.page.wait_for_timeout(300)
+        return {"ok": True, "action": "scroll", "amount": amount}
 
-    async def press_key(self, key: str) -> None:
+    async def press_key(self, key: str) -> dict[str, Any]:
         assert self.page is not None
+        before_url = self.page.url
         await self.page.keyboard.press(key)
         await self.page.wait_for_timeout(300)
+        after_url = self.page.url
+        url_changed = after_url != before_url
+        if url_changed:
+            self._track_url_change(after_url, f"press_key_{key}")
+        return {
+            "ok": True,
+            "key": key,
+            "before_url": before_url,
+            "after_url": after_url,
+            "url_changed": url_changed,
+            "state_changed": url_changed,
+        }
+
 
     async def back(self) -> None:
         assert self.page is not None

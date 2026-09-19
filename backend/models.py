@@ -73,6 +73,63 @@ class JourneyGraph(BaseModel):
     edges: list[JourneyEdge] = Field(default_factory=list)
 
 
+class SubgoalState(BaseModel):
+    id: str
+    description: str
+    status: Literal["pending", "in_progress", "verified", "failed"] = "pending"
+    evidence: str = ""
+    required: bool = True
+    observable_signals: list[str] = Field(default_factory=list)
+
+
+class GoalPlan(BaseModel):
+    primary_goal: str
+    subgoals: list[SubgoalState] = Field(default_factory=list)
+    success_conditions: list[str] = Field(default_factory=list)
+    evidence_requirements: list[str] = Field(default_factory=list)
+
+
+class ModelDecision(BaseModel):
+    provider: str
+    model: str
+    role: str = "action_planner"
+    action: ActionType
+    element_id: str | None = None
+    text: str | None = None
+    key: str | None = None
+    scroll_y: int | None = None
+    confidence: float = 0.5
+    rationale: str = ""
+    expected_result: str = ""
+    goal_complete: bool = False
+    stuck: bool = False
+    latency_ms: int = 0
+
+
+class ConsensusResult(BaseModel):
+    agreed: bool = True
+    selected_action: ActionType = "wait"
+    selected_element_id: str | None = None
+    selected_text: str | None = None
+    selected_key: str | None = None
+    confidence: float = 0.5
+    rationale: str = ""
+    proposals: list[dict[str, Any]] = Field(default_factory=list)
+    critic_verdict: str = ""
+    disagreement_reason: str | None = None
+
+
+class ActionResult(BaseModel):
+    ok: bool = True
+    state_changed: bool = False
+    url_changed: bool = False
+    content_changed: bool = False
+    verification: str = "passed"
+    before_url: str = ""
+    after_url: str = ""
+    error: str | None = None
+
+
 class NavigationDiagnostics(BaseModel):
     """Structured result of a browser navigation attempt."""
     navigation_state: Literal["usable", "loading", "blank", "blocked", "error", "unknown"] = "unknown"
@@ -95,17 +152,22 @@ class RunState(BaseModel):
     # URL diagnostics — populated after normalization and navigation
     original_target_url: str = ""
     normalized_target_url: str = ""
+    current_url: str = ""
+    last_observed_url: str = ""
     final_url: str = ""
+    redirect_chain: list[dict[str, Any]] = Field(default_factory=list)
     navigation_state: str = "unknown"
     navigation_diagnostics: NavigationDiagnostics = Field(default_factory=NavigationDiagnostics)
     # Run lifecycle
-    status: Literal["queued", "running", "completed", "failed", "cancelled"] = "queued"
+    status: Literal["queued", "running", "completed", "failed", "cancelled", "partial", "blocked"] = "queued"
     started_at: str | None = None
     finished_at: str | None = None
     step_count: int = 0
     paths_discovered: int = 0
     goal_completed: bool = False
     goal_verification_evidence: str = ""
+    subgoals: list[dict[str, Any]] = Field(default_factory=list)
+    consensus_history: list[dict[str, Any]] = Field(default_factory=list)
     issues: list[Issue] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
     latest_screenshot: str | None = None
@@ -113,3 +175,4 @@ class RunState(BaseModel):
     error: str | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     journey: dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "edges": []})
+

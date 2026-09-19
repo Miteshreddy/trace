@@ -1014,6 +1014,84 @@ button, a {
   text-align: center;
 }
 
+.activity-badge {
+  display: inline-block;
+  font-size: 7.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  padding: 1px 5px;
+  border-radius: 4px;
+  margin-right: 4px;
+  vertical-align: middle;
+}
+.badge-consensus {
+  background: rgba(148, 130, 255, 0.15);
+  color: #b4abff;
+  border: 1px solid rgba(148, 130, 255, 0.35);
+}
+.badge-disagree {
+  background: rgba(255, 170, 50, 0.15);
+  color: #ffc107;
+  border: 1px solid rgba(255, 170, 50, 0.35);
+}
+.badge-subgoal {
+  background: rgba(80, 220, 150, 0.15);
+  color: #63d8a1;
+  border: 1px solid rgba(80, 220, 150, 0.35);
+}
+.badge-url {
+  background: rgba(56, 189, 248, 0.15);
+  color: #38bdf8;
+  border: 1px solid rgba(56, 189, 248, 0.35);
+}
+.badge-recovery {
+  background: rgba(240, 100, 100, 0.15);
+  color: #f87171;
+  border: 1px solid rgba(240, 100, 100, 0.35);
+}
+.badge-verifier {
+  background: rgba(192, 132, 252, 0.15);
+  color: #c084fc;
+  border: 1px solid rgba(192, 132, 252, 0.35);
+}
+
+.subgoal-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 7px;
+  padding: 5px 0;
+  font-size: 9px;
+  color: #8b8e98;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+}
+.subgoal-item.verified {
+  color: #63d8a1;
+}
+.subgoal-icon {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 8px;
+  font-weight: 700;
+  background: rgba(255, 255, 255, 0.06);
+  color: #8b8e98;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.subgoal-item.verified .subgoal-icon {
+  background: rgba(99, 216, 161, 0.2);
+  color: #63d8a1;
+}
+.subgoal-desc {
+  flex: 1;
+  line-height: 1.35;
+  word-break: break-word;
+}
+
 /* Home Demo Command Box */
 .demo-command {
   width: 100%;
