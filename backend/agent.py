@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Awaitable, Callable
@@ -46,9 +47,30 @@ class AutonomousTester:
         self.screenshots: list[bytes] = []
         self.journey_nodes: list[dict[str, Any]] = []
         self.journey_edges: list[dict[str, Any]] = []
+        self.step_timings: list[dict[str, Any]] = []
         # Decompose natural language goal into verifiable milestones
         self.goal_plan = GoalVerificationEngine.decompose_goal(self.request.goal)
         self.run.subgoals = [s.model_dump() for s in self.goal_plan.subgoals]
+
+    def _on_url_change(self, new_url: str) -> None:
+        """Instant URL update callback invoked immediately on browser navigation/redirect."""
+        if not new_url or new_url in ("about:blank", self.run.current_url):
+            return
+        prev_url = self.run.current_url
+        self.run.current_url = new_url
+        self.run.last_observed_url = new_url
+        logger.info("[instant_url_update] %s ➔ %s", prev_url, new_url)
+        try:
+            loop = asyncio.get_running_loop()
+            loop.create_task(self._log(
+                "url_changed",
+                f"Target navigated: {prev_url} ➔ {new_url}",
+                previous_url=prev_url,
+                current_url=new_url,
+                immediate=True,
+            ))
+        except Exception:
+            pass
 
     async def _log(self, kind: str, message: str, **data: Any) -> None:
         await self.emit(Event(kind=kind, message=message, data=data))
@@ -106,7 +128,7 @@ class AutonomousTester:
             success_conditions=self.goal_plan.success_conditions,
         )
 
-        browser = BrowserRunner(run_dir)
+        browser = BrowserRunner(run_dir, on_url_change=self._on_url_change)
 
         try:
             total_passes = self.request.exploration_passes
@@ -197,8 +219,12 @@ class AutonomousTester:
                 consecutive_blank = 0
 
                 for step in range(1, self.request.max_steps + 1):
+                    step_start = time.perf_counter()
+
                     # ── 1. Observe ─────────────────────────────────────
+                    obs_t0 = time.perf_counter()
                     obs = await browser.observe(step)
+                    obs_ms = round((time.perf_counter() - obs_t0) * 1000, 2)
                     self.screenshots.append(obs.screenshot)
                     self.run.latest_screenshot = f"/artifacts/{self.run.id}/step_{step:03d}.png"
 
@@ -219,14 +245,16 @@ class AutonomousTester:
                         )
 
                     logger.info(
-                        "[observation_created] step=%d url=%s elements=%d body_len=%d nav_state=%s",
-                        step, obs.url, len(obs.ui_map), obs.body_text_length, obs.navigation_state,
+                        "[observation_created] step=%d url=%s elements=%d body_len=%d nav_state=%s obs_ms=%.1f",
+                        step, obs.url, len(obs.ui_map), obs.body_text_length, obs.navigation_state, obs_ms,
                     )
 
                     # Update goal milestone progress
+                    ver_t0 = time.perf_counter()
                     self.goal_plan, gv_eval = GoalVerificationEngine.verify_observation(
                         self.goal_plan, obs, browser.page, pass_history[-1] if pass_history else None
                     )
+                    ver_ms = round((time.perf_counter() - ver_t0) * 1000, 2)
                     self.run.subgoals = [s.model_dump() for s in self.goal_plan.subgoals]
                     for sig in gv_eval.get("signals", []):
                         await self._log("subgoal_completed", f"Milestone signal verified: {sig}", step=step, evaluation=gv_eval)
@@ -285,10 +313,10 @@ class AutonomousTester:
                             f"Avoid repeating Pass 1 sequence: {', '.join(prev_actions[:6])}"
                         )
 
-                    # ── 3. Multi-Model Consensus Decision ──────────────
+                    # ── 3. Multi-Model Consensus Decision (Async Parallel) ──────────────
                     can_finish_veto = GoalVerificationEngine.can_finish(self.goal_plan, obs)
-                    raw_decision, consensus_meta = await asyncio.to_thread(
-                        ai_provider_manager.decide_ensemble_action,
+                    infer_t0 = time.perf_counter()
+                    raw_decision, consensus_meta = await ai_provider_manager.decide_ensemble_action_async(
                         self.request.goal,
                         obs.url,
                         obs.screenshot,
@@ -299,6 +327,7 @@ class AutonomousTester:
                         step,
                         can_finish_veto,
                     )
+                    infer_ms = round((time.perf_counter() - infer_t0) * 1000, 2)
                     self.run.consensus_history.append(consensus_meta)
                     acting_provider = consensus_meta.get("selected_provider", "groq")
 
@@ -343,6 +372,7 @@ class AutonomousTester:
                     )
 
                     # ── 5. Execute Action ────────────────────────────────
+                    act_t0 = time.perf_counter()
                     action_result: dict[str, Any] = {"ok": True}
                     click_pt: tuple[float, float] | None = None
                     target_eid = decision.get("element_id")
@@ -397,6 +427,8 @@ class AutonomousTester:
                     elif action == "finish":
                         pass  # handled below in goal check
 
+                    act_ms = round((time.perf_counter() - act_t0) * 1000, 2)
+
                     # Re-check URL after action
                     act_url = browser.get_current_url()
                     if act_url and act_url != self.run.current_url:
@@ -422,6 +454,22 @@ class AutonomousTester:
                         click_point=click_pt,
                     )
 
+                    total_step_ms = round((time.perf_counter() - step_start) * 1000, 2)
+                    step_perf = {
+                        "step": step,
+                        "observation_ms": obs_ms,
+                        "inference_ms": infer_ms,
+                        "consensus_ms": consensus_meta.get("consensus_duration_ms", 0.0),
+                        "action_ms": act_ms,
+                        "verification_ms": ver_ms,
+                        "total_step_ms": total_step_ms,
+                    }
+                    self.step_timings.append(step_perf)
+                    logger.info(
+                        "[step_perf] step=%d total=%.1fms (obs=%.1fms infer=%.1fms consensus=%.1fms act=%.1fms ver=%.1fms)",
+                        step, total_step_ms, obs_ms, infer_ms, consensus_meta.get("consensus_duration_ms", 0.0), act_ms, ver_ms,
+                    )
+
                     record = {
                         "step": step,
                         "pass_no": pass_no,
@@ -438,6 +486,7 @@ class AutonomousTester:
                         "state_signature": obs.state_signature,
                         "url": obs.url,
                         "action_result": action_result,
+                        "step_perf": step_perf,
                     }
                     pass_history.append(record)
                     self.trajectory.append(record)
@@ -488,41 +537,52 @@ class AutonomousTester:
                         await browser.back()
                         await self._log("recovery", "Agent flagged stuck state; executed backward navigation")
 
-                # End of step loop
-                await browser.close()
-
                 # Re-create browser for next pass if needed
                 if pass_no < total_passes:
-                    browser = BrowserRunner(run_dir)
+                    await browser.close()
+                    browser = BrowserRunner(run_dir, on_url_change=self._on_url_change)
                     self.run.paths_discovered = successful_paths
 
             self.run.paths_discovered = max(successful_paths, 1 if self.run.goal_completed else 0)
 
-            # ── Phase 21: Audit Guard ──────────────────────────────────
+            # ── Phase 21: Direct Browser Audit (Zero-Reload) ───────────
             await self._log("audit", "Executing accessibility and layout heuristics audit")
             logger.info("[evidence_captured] run_id=%s steps=%d", self.run.id, self.run.step_count)
 
-            # Only run audit if target was navigable
-            if self.run.navigation_state in ("usable",):
-                acc_data = await self._audit_with_fresh_browser(run_dir, effective_url)
-                audit_available = acc_data.get("available", True)
+            acc_list: list[dict[str, Any]] = []
+            layout_list: list[dict[str, Any]] = []
+            audit_available = False
+
+            if self.run.navigation_state in ("usable",) and getattr(browser, "page", None) is not None:
+                try:
+                    acc_list, layout_list = await asyncio.gather(
+                        browser.audit_accessibility(),
+                        browser.audit_layout(),
+                        return_exceptions=False,
+                    )
+                    audit_available = True
+                except Exception as exc:
+                    logger.warning("[direct_audit_failed] %s — falling back", exc)
+                    acc_data = await self._audit_with_fresh_browser(run_dir, effective_url)
+                    acc_list = acc_data.get("accessibility", [])
+                    layout_list = acc_data.get("layout", [])
+                    audit_available = acc_data.get("available", False)
             else:
-                acc_data = {"accessibility": [], "layout": [], "available": False}
-                audit_available = False
                 await self._log(
                     "audit_skipped",
                     f"Accessibility audit skipped — target navigation state was '{self.run.navigation_state}'",
                 )
 
-            acc_list = acc_data.get("accessibility", [])
-            layout_list = acc_data.get("layout", [])
+            try:
+                await browser.close()
+            except Exception:
+                pass
 
             heuristic_issues = build_heuristic_findings(self.trajectory, acc_list, layout_list)
             audit_seed = [x.model_dump() for x in heuristic_issues]
 
-            # Multimodal Audit via Central Provider Manager (Ensemble)
-            ai_audit, audit_provider = await asyncio.to_thread(
-                ai_provider_manager.audit_run_ensemble,
+            # Multimodal Audit via Central Provider Manager (Async Ensemble)
+            ai_audit, audit_provider = await ai_provider_manager.audit_run_ensemble_async(
                 self.request.goal, self.screenshots[-4:], self.trajectory, audit_seed,
             )
             ai_issues = [
@@ -567,6 +627,19 @@ class AutonomousTester:
                 self.run.paths_discovered,
             )
             self.run.metrics["audit_provider"] = audit_provider
+            self.run.metrics["step_timings"] = self.step_timings
+            if self.step_timings:
+                total_times = [s["total_step_ms"] for s in self.step_timings]
+                infer_times = [s["inference_ms"] for s in self.step_timings]
+                obs_times = [s["observation_ms"] for s in self.step_timings]
+                self.run.metrics["performance"] = {
+                    "avg_step_ms": round(sum(total_times) / len(total_times), 1),
+                    "min_step_ms": min(total_times),
+                    "max_step_ms": max(total_times),
+                    "avg_inference_ms": round(sum(infer_times) / len(infer_times), 1),
+                    "avg_observation_ms": round(sum(obs_times) / len(obs_times), 1),
+                    "total_steps": len(total_times),
+                }
 
             run_status = "completed" if self.run.goal_completed else "partial"
             summary_text = (

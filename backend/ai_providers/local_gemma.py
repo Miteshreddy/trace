@@ -330,3 +330,43 @@ class LocalGemmaProvider(AIProvider):
             "confidence": 0.8,
         }
 
+    async def decide_action_async(
+        self,
+        goal: str,
+        screenshot: bytes,
+        ui_map: list[dict[str, Any]],
+        ax_tree: list[dict[str, Any]],
+        history: list[dict[str, Any]],
+        path_hint: str = "",
+    ) -> dict[str, Any]:
+        import asyncio
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.decide_action, goal, screenshot, ui_map, ax_tree, history, path_hint
+                ),
+                timeout=10.0,
+            )
+        except asyncio.TimeoutError:
+            self.record_failure("Local Gemma timed out after 10s")
+            raise TimeoutError("Local Gemma inference timed out")
+
+    async def audit_run_async(
+        self,
+        goal: str,
+        screenshots: list[bytes],
+        trajectory: list[dict[str, Any]],
+        heuristic_findings: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        import asyncio
+        try:
+            return await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.audit_run, goal, screenshots, trajectory, heuristic_findings
+                ),
+                timeout=15.0,
+            )
+        except asyncio.TimeoutError:
+            self.record_failure("Local Gemma audit timed out after 15s")
+            raise TimeoutError("Local Gemma audit timed out")
+

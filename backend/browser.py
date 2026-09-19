@@ -11,6 +11,7 @@ Key improvements over original:
 """
 from __future__ import annotations
 
+import asyncio
 import hashlib
 import io
 import json
@@ -19,10 +20,10 @@ import time
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import Any, Callable
 
 from PIL import Image, ImageDraw, ImageStat
-from playwright.async_api import Browser, BrowserContext, Page, Playwright, async_playwright
+from playwright.async_api import Browser, BrowserContext, CDPSession, Page, Playwright, async_playwright
 
 from .models import NavigationDiagnostics
 from .url_utils import classify_navigation_error
@@ -78,12 +79,14 @@ class Observation:
 
 
 class BrowserRunner:
-    def __init__(self, artifact_dir: Path) -> None:
+    def __init__(self, artifact_dir: Path, on_url_change: Callable[[str], Any] | None = None) -> None:
         self.artifact_dir = artifact_dir
+        self.on_url_change = on_url_change
         self.playwright: Playwright | None = None
         self.browser: Browser | None = None
         self.context: BrowserContext | None = None
         self.page: Page | None = None
+        self._cdp_session: Any | None = None
         self.current_elements: dict[str, dict[str, Any]] = {}
         self.redirect_chain: list[dict[str, Any]] = []
         self._last_url: str = ""
@@ -189,6 +192,13 @@ class BrowserRunner:
 
     async def close(self) -> None:
         """Reliably close all Playwright resources."""
+        if self._cdp_session:
+            try:
+                await self._cdp_session.detach()
+            except Exception:
+                pass
+            self._cdp_session = None
+
         if self.context:
             try:
                 await self.context.close()
@@ -232,9 +242,24 @@ class BrowserRunner:
             self._request_failures.append(text)
             logger.debug("[requestfailed] %s", text)
 
+        def _on_framenavigated(frame: Any) -> None:
+            try:
+                if self.page and frame == self.page.main_frame:
+                    new_u = frame.url
+                    if new_u and new_u not in ("about:blank", ""):
+                        changed = self._track_url_change(new_u, "frame_navigation")
+                        if changed and self.on_url_change:
+                            try:
+                                self.on_url_change(new_u)
+                            except Exception as e:
+                                logger.debug("[on_url_change_error] %s", e)
+            except Exception:
+                pass
+
         self.page.on("pageerror", _on_pageerror)
         self.page.on("console", _on_console)
         self.page.on("requestfailed", _on_requestfailed)
+        self.page.on("framenavigated", _on_framenavigated)
 
     async def _handle_popup(self, popup: Page) -> None:
         """
@@ -244,18 +269,23 @@ class BrowserRunner:
         logger.info("[popup_detected] url=%s", popup.url)
         try:
             await popup.wait_for_load_state("domcontentloaded", timeout=8_000)
-            # If popup looks like the intended destination, switch to it
             if self.page and popup.url != "about:blank" and popup.url != self.page.url:
                 logger.info("[popup_follow] switching context to popup url=%s", popup.url)
                 self.page = popup
+                self._cdp_session = None
                 self._attach_listeners()
                 self._track_url_change(popup.url, "popup")
+                if self.on_url_change:
+                    try:
+                        self.on_url_change(popup.url)
+                    except Exception:
+                        pass
         except Exception as exc:
             logger.debug("[popup_follow_error] %s", exc)
 
     async def _navigate_with_retry(self, url: str) -> NavigationDiagnostics:
         """
-        Attempt navigation up to _MAX_RETRIES times.
+        Attempt navigation up to _MAX_RETRIES times with adaptive readiness.
         Returns a NavigationDiagnostics describing the final state.
         """
         assert self.page is not None
@@ -266,7 +296,7 @@ class BrowserRunner:
             logger.info("[navigation_attempt] attempt=%d url=%s", attempt, url)
 
             try:
-                # Step 1: goto with domcontentloaded (faster first signal)
+                # Step 1: goto with domcontentloaded (fastest first signal)
                 self.page.set_default_timeout(_NAV_TIMEOUT_MS)
                 await self.page.goto(
                     url,
@@ -275,22 +305,23 @@ class BrowserRunner:
                 )
                 logger.info("[navigation_domready] attempt=%d final_url=%s", attempt, self.page.url)
 
-                # Step 2: allow JS rendering time
-                await self.page.wait_for_timeout(_RENDER_WAIT_MS)
-
-                # Step 3: bounded networkidle (many SPAs keep polling; catch timeout)
-                try:
-                    await self.page.wait_for_load_state(
-                        "networkidle", timeout=_NETWORK_IDLE_WAIT_MS
-                    )
-                except Exception:
-                    logger.debug("[networkidle_skipped] page kept making requests — continuing")
-
-                # Step 4: inspect page state
+                # Step 2: Adaptive content readiness check (proceed immediately when usable)
                 diag = await self._inspect_page_state(diag)
+                if diag.navigation_state != "usable":
+                    # Bounded adaptive polling (up to 1.0s max, 100ms interval)
+                    for _ in range(10):
+                        await asyncio.sleep(0.1)
+                        diag = await self._inspect_page_state(diag)
+                        if diag.navigation_state == "usable":
+                            break
+
                 diag.attempts = attempt
                 self._track_url_change(self.page.url, "http_redirect" if self.page.url != url else "navigation")
-
+                if self.on_url_change:
+                    try:
+                        self.on_url_change(self.page.url)
+                    except Exception:
+                        pass
 
                 if diag.navigation_state == "usable":
                     logger.info(
@@ -301,15 +332,14 @@ class BrowserRunner:
 
                 # Blank or suspicious state — retry unless last attempt
                 if attempt < _MAX_RETRIES:
-                    wait_ms = attempt * 1500
+                    wait_ms = attempt * 800
                     logger.warning(
-                        "[navigation_retry] attempt=%d state=%s reason='%s' waiting=%dms",
-                        attempt, diag.navigation_state, "page not usable", wait_ms,
+                        "[navigation_retry] attempt=%d state=%s reason='page not usable' waiting=%dms",
+                        attempt, diag.navigation_state, wait_ms,
                     )
-                    await self.page.wait_for_timeout(wait_ms)
+                    await asyncio.sleep(wait_ms / 1000.0)
                     continue
 
-                # Exhausted retries — return whatever state we have
                 logger.warning(
                     "[navigation_failed] exhausted %d attempts final_state=%s",
                     _MAX_RETRIES, diag.navigation_state,
@@ -394,26 +424,47 @@ class BrowserRunner:
         )
         return diag
 
+    async def _get_body_text(self) -> str:
+        assert self.page is not None
+        try:
+            return await self.page.locator("body").inner_text(timeout=2000)
+        except Exception:
+            return ""
+
+    async def _get_title(self) -> str:
+        assert self.page is not None
+        try:
+            return await self.page.title()
+        except Exception:
+            return ""
+
     # ------------------------------------------------------------------
     # Observation
     # ------------------------------------------------------------------
 
     async def observe(self, step: int) -> Observation:
         assert self.page is not None
-        await self.page.wait_for_timeout(250)
 
         curr_url = self.page.url
         self._track_url_change(curr_url, "observe")
+        if self.on_url_change:
+            try:
+                self.on_url_change(curr_url)
+            except Exception:
+                pass
 
-        raw_screenshot = await self.page.screenshot(full_page=False)
-        ui_map = await self._build_ui_map()
+        # Concurrently execute all independent browser reads
+        screenshot_task = asyncio.create_task(self.page.screenshot(full_page=False))
+        ui_map_task = asyncio.create_task(self._build_ui_map())
+        ax_task = asyncio.create_task(self._get_ax_tree())
+        body_task = asyncio.create_task(self._get_body_text())
+        title_task = asyncio.create_task(self._get_title())
+
+        raw_screenshot, ui_map, (ax_tree, ax_status), text, current_title = await asyncio.gather(
+            screenshot_task, ui_map_task, ax_task, body_task, title_task
+        )
+
         self.current_elements = {item["id"]: item for item in ui_map}
-        ax_tree, ax_status = await self._get_ax_tree()
-
-        try:
-            text = await self.page.locator("body").inner_text(timeout=3000)
-        except Exception:
-            text = ""
         body_text_length = len(text.strip())
         compact = " ".join(text.split())[:1800]
 
@@ -427,10 +478,11 @@ class BrowserRunner:
         )
         state_signature = hashlib.sha1(signature_raw.encode("utf-8")).hexdigest()[:12]
 
+        # Non-blocking disk write for step screenshot
         shot_path = self.artifact_dir / f"step_{step:03d}.png"
-        shot_path.write_bytes(raw_screenshot)
+        asyncio.create_task(asyncio.to_thread(shot_path.write_bytes, raw_screenshot))
 
-        # Compute visual diagnostics
+        # Compute visual diagnostics fast
         shot_diag = {"width": 1440, "height": 900, "mean_brightness": 128.0, "is_blank": False}
         try:
             with Image.open(io.BytesIO(raw_screenshot)) as img:
@@ -443,12 +495,6 @@ class BrowserRunner:
                 shot_diag["variance"] = round(var_val, 1)
                 if var_val < 0.5 and (mean_val > 250 or mean_val < 5):
                     shot_diag["is_blank"] = True
-        except Exception:
-            pass
-
-        current_title = ""
-        try:
-            current_title = await self.page.title()
         except Exception:
             pass
 
@@ -499,9 +545,9 @@ class BrowserRunner:
         # 2. Bounded micro-scroll to trigger lazy-loaded cards/ratings
         try:
             await self.page.mouse.wheel(0, 350)
-            await self.page.wait_for_timeout(350)
+            await asyncio.sleep(0.08)
             await self.page.mouse.wheel(0, -100)
-            await self.page.wait_for_timeout(200)
+            await asyncio.sleep(0.05)
         except Exception:
             pass
 
@@ -648,8 +694,9 @@ class BrowserRunner:
     async def _get_ax_tree(self) -> tuple[list[dict[str, Any]], str]:
         assert self.page is not None
         try:
-            cdp = await self.context.new_cdp_session(self.page)  # type: ignore[union-attr]
-            result = await cdp.send("Accessibility.getFullAXTree")
+            if self._cdp_session is None:
+                self._cdp_session = await self.context.new_cdp_session(self.page)  # type: ignore[union-attr]
+            result = await self._cdp_session.send("Accessibility.getFullAXTree")
             nodes = result.get("nodes", [])
             compact: list[dict[str, Any]] = []
             for n in nodes:
@@ -666,6 +713,7 @@ class BrowserRunner:
             return compact[:180], status
         except Exception as exc:
             logger.debug("[ax_tree_unavailable] %s", exc)
+            self._cdp_session = None
             return [], "unavailable"
 
     # ------------------------------------------------------------------
@@ -711,7 +759,7 @@ class BrowserRunner:
                 "top": top_info,
             }
 
-        # Scroll element into view
+        # Scroll element into view instantly
         try:
             await self.page.evaluate(
                 """
@@ -722,19 +770,31 @@ class BrowserRunner:
                 """,
                 {"cx": cx, "cy": cy},
             )
-            await self.page.wait_for_timeout(150)
         except Exception:
             pass
 
         await self.page.mouse.click(cx, cy)
-        await self.page.wait_for_timeout(_CLICK_WAIT_MS)
 
+        # Adaptive settle: check if URL changed immediately or wait small bound
         after_url = self.page.url
         url_changed = after_url != before_url
+        if not url_changed:
+            for _ in range(3):
+                await asyncio.sleep(0.04)
+                after_url = self.page.url
+                if after_url != before_url:
+                    url_changed = True
+                    break
+
         if url_changed:
             self._track_url_change(after_url, "click")
-        state_changed = url_changed
+            if self.on_url_change:
+                try:
+                    self.on_url_change(after_url)
+                except Exception:
+                    pass
 
+        state_changed = url_changed
         return {
             "ok": True,
             "x": cx,
@@ -761,16 +821,15 @@ class BrowserRunner:
 
         # Click to focus
         await self.page.mouse.click(cx, cy)
-        await self.page.wait_for_timeout(_TYPE_WAIT_MS)
+        await asyncio.sleep(0.02)
 
         # Select all and clear existing content
         await self.page.keyboard.press("Control+A")
         await self.page.keyboard.press("Backspace")
-        await self.page.wait_for_timeout(80)
 
-        # Type with human-like delay
-        await self.page.keyboard.type(text, delay=25)
-        await self.page.wait_for_timeout(_TYPE_WAIT_MS)
+        # Type with fast delay
+        await self.page.keyboard.type(text, delay=5)
+        await asyncio.sleep(0.03)
 
         # Verify the value appeared (for standard inputs)
         try:
@@ -792,6 +851,11 @@ class BrowserRunner:
         url_changed = after_url != before_url
         if url_changed:
             self._track_url_change(after_url, "type")
+            if self.on_url_change:
+                try:
+                    self.on_url_change(after_url)
+                except Exception:
+                    pass
 
         return {
             "ok": True,
@@ -837,24 +901,29 @@ class BrowserRunner:
             }
             """
         )
-        await self.page.wait_for_timeout(300)
+        await asyncio.sleep(0.05)
         return dismissed
 
     async def scroll(self, amount: int) -> dict[str, Any]:
         assert self.page is not None
         await self.page.mouse.wheel(0, amount)
-        await self.page.wait_for_timeout(300)
+        await asyncio.sleep(0.06)
         return {"ok": True, "action": "scroll", "amount": amount}
 
     async def press_key(self, key: str) -> dict[str, Any]:
         assert self.page is not None
         before_url = self.page.url
         await self.page.keyboard.press(key)
-        await self.page.wait_for_timeout(300)
+        await asyncio.sleep(0.06)
         after_url = self.page.url
         url_changed = after_url != before_url
         if url_changed:
             self._track_url_change(after_url, f"press_key_{key}")
+            if self.on_url_change:
+                try:
+                    self.on_url_change(after_url)
+                except Exception:
+                    pass
         return {
             "ok": True,
             "key": key,
@@ -864,14 +933,13 @@ class BrowserRunner:
             "state_changed": url_changed,
         }
 
-
     async def back(self) -> None:
         assert self.page is not None
         try:
-            await self.page.go_back(wait_until="domcontentloaded", timeout=6000)
-            await self.page.wait_for_timeout(500)
+            await self.page.go_back(wait_until="domcontentloaded", timeout=4000)
+            await asyncio.sleep(0.08)
         except Exception:
-            await self.page.wait_for_timeout(250)
+            await asyncio.sleep(0.05)
 
     # ------------------------------------------------------------------
     # Accessibility / Layout Audit (unchanged from original, preserved exactly)

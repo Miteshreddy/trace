@@ -72,6 +72,21 @@ class AIProvider(ABC):
         """Generate the next navigation action based on screenshot and UI context."""
         ...
 
+    async def decide_action_async(
+        self,
+        goal: str,
+        screenshot: bytes,
+        ui_map: list[dict[str, Any]],
+        ax_tree: list[dict[str, Any]],
+        history: list[dict[str, Any]],
+        path_hint: str = "",
+    ) -> dict[str, Any]:
+        """Asynchronous action decision (defaults to thread-pool offload)."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.decide_action, goal, screenshot, ui_map, ax_tree, history, path_hint
+        )
+
     @abstractmethod
     def audit_run(
         self,
@@ -83,7 +98,25 @@ class AIProvider(ABC):
         """Perform multimodal audit review and developer remediation recommendations."""
         ...
 
+    async def audit_run_async(
+        self,
+        goal: str,
+        screenshots: list[bytes],
+        trajectory: list[dict[str, Any]],
+        heuristic_findings: list[dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Asynchronous multimodal audit (defaults to thread-pool offload)."""
+        import asyncio
+        return await asyncio.to_thread(
+            self.audit_run, goal, screenshots, trajectory, heuristic_findings
+        )
+
     @abstractmethod
     def ping(self) -> tuple[bool, float, str]:
         """Lightweight connectivity probe. Returns (success, latency_ms, message)."""
         ...
+
+    async def ping_async(self) -> tuple[bool, float, str]:
+        """Asynchronous ping."""
+        import asyncio
+        return await asyncio.to_thread(self.ping)

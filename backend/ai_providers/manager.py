@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import os
+import time
 from typing import Any, Literal
 
 from ..config import AI_PROVIDER_MODE
@@ -144,7 +146,7 @@ class AIProviderManager:
             "stuck": True,
         }, "fallback"
 
-    def decide_ensemble_action(
+    async def decide_ensemble_action_async(
         self,
         goal: str,
         current_url: str,
@@ -157,80 +159,90 @@ class AIProviderManager:
         can_finish_veto: tuple[bool, str] | None = None,
     ) -> tuple[dict[str, Any], dict[str, Any]]:
         """
-        True Role-Based Multi-Model Consensus Architecture:
-        1. Groq (DOM / Action Planner): Rapid structured inference with compact DOM/Vision.
-        2. Gemini (Visual Planner): Multimodal visual spatial reasoning (if configured & healthy).
-        3. Compare proposals.
-        4. If disagreement or finish proposed: Critic evaluates and enforces evidence guard.
-        5. Returns (selected_action, consensus_telemetry).
+        True Concurrent Multi-Model Consensus Architecture:
+        1. Run all configured providers (Groq, Gemini, Local Gemma) in parallel via asyncio.gather.
+        2. Total inference latency approaches the slowest provider, NOT their sum.
+        3. Isolated failure handling: failure of one provider never crashes the run.
+        4. Fast local deterministic consensus (< 2ms): resolves proposals without an extra LLM round.
+        5. Conservative finish evidence guard.
         """
+        import asyncio
+        import time
+
         proposals: list[dict[str, Any]] = []
         errors: dict[str, str] = {}
+        latencies: dict[str, float] = {}
 
-        # 1. Ask Groq (Action Planner)
-        groq_action: dict[str, Any] | None = None
-        if self.groq.is_configured() and self.groq.health.status != "unhealthy":
-            try:
-                groq_action = self.groq.decide_action(
-                    goal=goal,
-                    screenshot=screenshot,
-                    ui_map=ui_map,
-                    ax_tree=ax_tree,
-                    history=history,
-                    path_hint=path_hint,
+        async def _invoke_provider(prov: Any) -> dict[str, Any]:
+            if hasattr(prov, "decide_action_async"):
+                res = prov.decide_action_async(
+                    goal=goal, screenshot=screenshot, ui_map=ui_map,
+                    ax_tree=ax_tree, history=history, path_hint=path_hint,
                 )
-                if groq_action and groq_action.get("action"):
-                    proposals.append({
-                        "provider": "groq",
-                        "model": self.groq.model,
-                        "role": "action_planner",
-                        "action": groq_action.get("action"),
-                        "element_id": groq_action.get("element_id"),
-                        "text": groq_action.get("text"),
-                        "key": groq_action.get("key"),
-                        "confidence": groq_action.get("confidence", 0.6),
-                        "rationale": groq_action.get("rationale", ""),
-                        "goal_complete": groq_action.get("goal_complete", False),
-                    })
-            except Exception as e:
-                errors["groq"] = str(e)[:120]
-                logger.warning("[ensemble_groq_error] %s", e)
-
-        # 2. Ask Gemini (Visual Planner) if configured & not degraded
-        gemini_action: dict[str, Any] | None = None
-        if self.gemini.is_configured() and self.gemini.health.status != "unhealthy":
-            try:
-                gemini_action = self.gemini.decide_action(
-                    goal=goal,
-                    screenshot=screenshot,
-                    ui_map=ui_map,
-                    ax_tree=ax_tree,
-                    history=history,
-                    path_hint=path_hint,
+                if asyncio.iscoroutine(res):
+                    return await res
+                if isinstance(res, dict):
+                    return res
+            if hasattr(prov, "decide_action"):
+                res = await asyncio.to_thread(
+                    prov.decide_action,
+                    goal=goal, screenshot=screenshot, ui_map=ui_map,
+                    ax_tree=ax_tree, history=history, path_hint=path_hint,
                 )
-                if gemini_action and gemini_action.get("action"):
-                    proposals.append({
-                        "provider": "gemini",
-                        "model": self.gemini.model,
-                        "role": "visual_planner",
-                        "action": gemini_action.get("action"),
-                        "element_id": gemini_action.get("element_id"),
-                        "text": gemini_action.get("text"),
-                        "key": gemini_action.get("key"),
-                        "confidence": gemini_action.get("confidence", 0.6),
-                        "rationale": gemini_action.get("rationale", ""),
-                        "goal_complete": gemini_action.get("goal_complete", False),
-                    })
-            except Exception as e:
-                errors["gemini"] = str(e)[:120]
-                logger.warning("[ensemble_gemini_error] %s", e)
+                if isinstance(res, tuple):
+                    return res[0]
+                return res
+            raise RuntimeError("Provider does not support decide_action")
 
-        # 3. Form Consensus Decision
+        # 1. Determine active providers based on mode & health
+        coros: list[tuple[str, Any]] = []
+
+        if self.mode in ("LOCAL", "OFFLINE"):
+            coros.append(("local_gemma", _invoke_provider(self.local_gemma)))
+        else:
+            # Parallel cloud providers
+            if self.groq.is_configured() and getattr(self.groq.health, "status", "healthy") != "unhealthy":
+                coros.append(("groq", _invoke_provider(self.groq)))
+
+            if self.gemini.is_configured() and getattr(self.gemini.health, "status", "healthy") != "unhealthy":
+                coros.append(("gemini", _invoke_provider(self.gemini)))
+
+        # 2. Concurrently execute all model requests
+        inference_start = time.perf_counter()
+        if coros:
+            raw_results = await asyncio.gather(*(c[1] for c in coros), return_exceptions=True)
+            for (p_name, _), res in zip(coros, raw_results):
+                if isinstance(res, Exception):
+                    errors[p_name] = str(res)[:120]
+                    logger.warning("[provider_parallel_failure] Provider '%s' failed: %s", p_name, res)
+                elif isinstance(res, dict) and res.get("action"):
+                    proposals.append({
+                        "provider": p_name,
+                        "model": self.providers[p_name].model,
+                        "action": res.get("action"),
+                        "element_id": res.get("element_id"),
+                        "text": res.get("text"),
+                        "key": res.get("key"),
+                        "scroll_y": res.get("scroll_y"),
+                        "confidence": float(res.get("confidence", 0.6)),
+                        "rationale": res.get("rationale", ""),
+                        "expected_result": res.get("expected_result", ""),
+                        "goal_complete": res.get("goal_complete", False),
+                        "stuck": res.get("stuck", False),
+                        "raw_result": res,
+                    })
+                    latencies[p_name] = round((time.perf_counter() - inference_start) * 1000.0, 1)
+
+        total_inference_ms = round((time.perf_counter() - inference_start) * 1000.0, 1)
+
+        # 3. Fast Deterministic Local Consensus (< 2ms)
+        consensus_start = time.perf_counter()
         agreed = True
         disagreement_info: dict[str, Any] | None = None
-        critic_verdict = "uncontested"
-        selected_provider = "groq"
+        selected_provider = "fallback"
         selected_action: dict[str, Any]
+
+        valid_eids = {e.get("id") for e in ui_map if isinstance(e, dict) and e.get("id")}
 
         if len(proposals) >= 2:
             p1, p2 = proposals[0], proposals[1]
@@ -238,87 +250,79 @@ class AIProviderManager:
             same_element = p1.get("element_id") == p2.get("element_id")
 
             if same_action and (same_element or not p1.get("element_id")):
-                # Strong multi-model agreement
+                # Strong multi-model agreement!
                 agreed = True
                 selected_provider = "consensus"
-                selected_action = dict(groq_action if groq_action else gemini_action)  # type: ignore
-                selected_action["confidence"] = min(1.0, float(selected_action.get("confidence", 0.5)) + 0.2)
-                selected_action["rationale"] = f"[Multi-Model Consensus] Groq and Gemini agreed on {selected_action.get('action')}. {selected_action.get('rationale', '')}"
-            else:
-                # Disagreement detected — Invoke Critic
-                agreed = False
-                critic_res = self.local_gemma.criticize_proposal(
-                    goal=goal,
-                    current_url=current_url,
-                    history=history,
-                    proposals=proposals,
-                    ui_map=ui_map,
+                selected_action = dict(p1.get("raw_result") or p1)
+                selected_action["confidence"] = min(1.0, float(selected_action.get("confidence", 0.6)) + 0.2)
+                selected_action["rationale"] = (
+                    f"[Multi-Model Consensus] {p1['provider']} and {p2['provider']} agreed on {selected_action.get('action')}. "
+                    + f"{selected_action.get('rationale', '')}"
                 )
-                critic_verdict = critic_res.get("verdict", "undecided")
+            else:
+                # Disagreement resolved locally via deterministic scoring
+                agreed = False
                 disagreement_info = {
                     "step": step,
-                    "groq_action": f"{p1.get('action')}:{p1.get('element_id')}",
-                    "gemini_action": f"{p2.get('action')}:{p2.get('element_id')}",
-                    "critic_verdict": critic_verdict,
-                    "reason": critic_res.get("reason", "Models selected different interaction targets"),
+                    f"{p1['provider']}_action": f"{p1.get('action')}:{p1.get('element_id')}",
+                    f"{p2['provider']}_action": f"{p2.get('action')}:{p2.get('element_id')}",
+                    "reason": "Models selected different interaction targets",
                 }
-                logger.info("[model_disagreement] step=%d: %s", step, disagreement_info)
 
-                # If one proposed finish but critic or second model disagreed, reject finish!
+                # If one proposed finish but second model did not, reject premature finish
                 if p1.get("action") == "finish" and p2.get("action") != "finish":
-                    selected_provider = p2.get("provider", "gemini")
-                    selected_action = dict(gemini_action)  # type: ignore
+                    selected_provider = p2["provider"]
+                    selected_action = dict(p2.get("raw_result") or p2)
                     selected_action["goal_complete"] = False
                 elif p2.get("action") == "finish" and p1.get("action") != "finish":
-                    selected_provider = p1.get("provider", "groq")
-                    selected_action = dict(groq_action)  # type: ignore
+                    selected_provider = p1["provider"]
+                    selected_action = dict(p1.get("raw_result") or p1)
                     selected_action["goal_complete"] = False
                 else:
-                    # Prefer proposal whose target element is confirmed in UI map
-                    e1_ok = any(e.get("id") == p1.get("element_id") for e in ui_map) if p1.get("element_id") else True
-                    e2_ok = any(e.get("id") == p2.get("element_id") for e in ui_map) if p2.get("element_id") else True
-                    if e1_ok and not e2_ok:
-                        selected_provider = p1.get("provider", "groq")
-                        selected_action = dict(groq_action)  # type: ignore
-                    elif e2_ok and not e1_ok:
-                        selected_provider = p2.get("provider", "gemini")
-                        selected_action = dict(gemini_action)  # type: ignore
-                    else:
-                        # Choose higher confidence or Groq
-                        if float(p2.get("confidence", 0)) > float(p1.get("confidence", 0)):
-                            selected_provider = p2.get("provider", "gemini")
-                            selected_action = dict(gemini_action)  # type: ignore
-                        else:
-                            selected_provider = p1.get("provider", "groq")
-                            selected_action = dict(groq_action)  # type: ignore
+                    # Score proposals: element validity, confidence, avoidance of loops
+                    def score_prop(p: dict[str, Any]) -> float:
+                        score = float(p.get("confidence", 0.5))
+                        eid = p.get("element_id")
+                        if eid and eid in valid_eids:
+                            score += 0.35
+                        elif eid and eid not in valid_eids:
+                            score -= 0.5
+                        # Penalize repeating failed element from history
+                        recent_eids = [h.get("element_id") for h in history[-2:] if h.get("element_id")]
+                        if eid and eid in recent_eids:
+                            score -= 0.25
+                        return score
+
+                    s1 = score_prop(p1)
+                    s2 = score_prop(p2)
+                    best = p2 if s2 > s1 else p1
+                    selected_provider = best["provider"]
+                    selected_action = dict(best.get("raw_result") or best)
+
         elif len(proposals) == 1:
             selected_provider = proposals[0]["provider"]
-            selected_action = dict(groq_action if groq_action else gemini_action)  # type: ignore
+            selected_action = dict(proposals[0].get("raw_result") or proposals[0])
         else:
-            # All cloud providers failed — Fallback to local Gemma or safe wait
+            # All active cloud providers failed / unavailable — Local Gemma fallback or safe wait
             logger.warning("[ai_manager] Cloud providers failed, falling back to Local Gemma")
             try:
-                selected_action = self.local_gemma.decide_action(
-                    goal=goal,
-                    screenshot=screenshot,
-                    ui_map=ui_map,
-                    ax_tree=ax_tree,
-                    history=history,
-                    path_hint=path_hint,
+                gemma_res = await self.local_gemma.decide_action_async(
+                    goal=goal, screenshot=screenshot, ui_map=ui_map,
+                    ax_tree=ax_tree, history=history, path_hint=path_hint,
                 )
+                selected_action = gemma_res
                 selected_provider = "local_gemma"
             except Exception as e:
                 selected_action = {
                     "action": "wait",
                     "element_id": None, "text": None, "key": None, "scroll_y": None,
-                    "rationale": f"All AI providers unavailable. Re-observing... ({e})",
+                    "rationale": f"All AI providers temporarily unavailable. Re-observing... ({e})",
                     "expected_result": "Re-observe",
                     "confidence": 0.3, "goal_complete": False, "stuck": True,
                 }
                 selected_provider = "fallback"
 
         # 4. Enforce Conservative Completion Guard
-        # If any action claims finish or goal_complete, check can_finish_veto
         if selected_action.get("action") == "finish" or selected_action.get("goal_complete"):
             if can_finish_veto and not can_finish_veto[0]:
                 logger.warning("[consensus_finish_vetoed] %s", can_finish_veto[1])
@@ -327,17 +331,136 @@ class AIProviderManager:
                 selected_action["goal_complete"] = False
                 selected_action["rationale"] = f"Premature finish vetoed: {can_finish_veto[1]}"
 
+        consensus_duration_ms = round((time.perf_counter() - consensus_start) * 1000.0, 2)
+
         telemetry = {
             "step": step,
             "agreed": agreed,
             "selected_provider": selected_provider,
-            "proposals": proposals,
-            "critic_verdict": critic_verdict,
+            "proposals": [
+                {k: v for k, v in p.items() if k != "raw_result"} for p in proposals
+            ],
             "disagreement": disagreement_info,
             "confidence": selected_action.get("confidence", 0.5),
             "rationale": selected_action.get("rationale", ""),
+            "inference_duration_ms": total_inference_ms,
+            "consensus_duration_ms": consensus_duration_ms,
+            "provider_latencies": latencies,
+            "errors": errors,
         }
         return selected_action, telemetry
+
+    def decide_ensemble_action(
+        self,
+        goal: str,
+        current_url: str,
+        screenshot: bytes,
+        ui_map: list[dict[str, Any]],
+        ax_tree: list[dict[str, Any]],
+        history: list[dict[str, Any]],
+        path_hint: str = "",
+        step: int = 1,
+        can_finish_veto: tuple[bool, str] | None = None,
+    ) -> tuple[dict[str, Any], dict[str, Any]]:
+        """Synchronous wrapper for decide_ensemble_action_async."""
+        import concurrent.futures
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
+
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(
+                    asyncio.run,
+                    self.decide_ensemble_action_async(
+                        goal, current_url, screenshot, ui_map, ax_tree,
+                        history, path_hint, step, can_finish_veto,
+                    ),
+                ).result()
+        else:
+            return asyncio.run(
+                self.decide_ensemble_action_async(
+                    goal, current_url, screenshot, ui_map, ax_tree,
+                    history, path_hint, step, can_finish_veto,
+                )
+            )
+
+    async def audit_run_ensemble_async(
+        self,
+        goal: str,
+        screenshots: list[bytes],
+        trajectory: list[dict[str, Any]],
+        heuristic_findings: list[dict[str, Any]],
+    ) -> tuple[dict[str, Any], str]:
+        """
+        Concurrent Multi-Model Audit:
+        Runs Gemini (visual/a11y) and Groq (UX/navigation) in parallel via asyncio.gather.
+        """
+        import asyncio
+
+        async def _invoke_audit(prov: Any) -> dict[str, Any]:
+            if hasattr(prov, "audit_run_async"):
+                res = prov.audit_run_async(goal, screenshots, trajectory, heuristic_findings)
+                if asyncio.iscoroutine(res):
+                    return await res
+                if isinstance(res, dict):
+                    return res
+            if hasattr(prov, "audit_run"):
+                res = await asyncio.to_thread(
+                    prov.audit_run, goal, screenshots, trajectory, heuristic_findings
+                )
+                if isinstance(res, tuple):
+                    return res[0]
+                return res
+            raise RuntimeError("Provider does not support audit_run")
+
+        tasks = []
+        task_names = []
+
+        if self.gemini.is_configured() and getattr(self.gemini.health, "status", "healthy") != "unhealthy":
+            tasks.append(_invoke_audit(self.gemini))
+            task_names.append("gemini")
+
+        if self.groq.is_configured() and getattr(self.groq.health, "status", "healthy") != "unhealthy":
+            tasks.append(_invoke_audit(self.groq))
+            task_names.append("groq")
+
+        all_findings: list[dict[str, Any]] = []
+        providers_used: list[str] = []
+        summary = ""
+        friction = "Low"
+
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for name, res in zip(task_names, results):
+                if isinstance(res, Exception):
+                    logger.warning("[audit_parallel_failure] %s: %s", name, res)
+                elif isinstance(res, dict):
+                    providers_used.append(name)
+                    findings = res.get("findings", [])
+                    all_findings.extend(findings)
+                    if not summary and res.get("summary"):
+                        summary = res["summary"]
+                    if res.get("friction_rating") in ("High", "Critical"):
+                        friction = res["friction_rating"]
+
+        # Deduplicate findings by title
+        seen_titles = set()
+        unique_findings = []
+        for f in all_findings:
+            title = f.get("title", "").strip().lower()
+            if title and title not in seen_titles:
+                seen_titles.add(title)
+                unique_findings.append(f)
+
+        provider_label = "+".join(providers_used) if providers_used else "ensemble"
+        return {
+            "summary": summary or f"Ensemble audit completed with {len(unique_findings)} findings across models.",
+            "friction_rating": friction,
+            "findings": unique_findings[:15],
+            "providers_used": providers_used,
+        }, provider_label
 
     def audit_run_ensemble(
         self,
@@ -346,54 +469,23 @@ class AIProviderManager:
         trajectory: list[dict[str, Any]],
         heuristic_findings: list[dict[str, Any]],
     ) -> tuple[dict[str, Any], str]:
-        """
-        Multi-model audit combining Gemini (visual/a11y), Groq (UX/navigation),
-        and deterministic heuristics.
-        """
-        all_findings: list[dict[str, Any]] = []
-        providers_used: list[str] = []
-        summary = ""
-        friction = "Low"
+        """Synchronous wrapper for audit_run_ensemble_async."""
+        import concurrent.futures
+        try:
+            loop = asyncio.get_running_loop()
+        except RuntimeError:
+            loop = None
 
-        # 1. Gemini visual audit
-        if self.gemini.is_configured() and self.gemini.health.status != "unhealthy":
-            try:
-                res = self.gemini.audit_run(goal, screenshots, trajectory, heuristic_findings)
-                if res and "findings" in res:
-                    for f in res.get("findings", []):
-                        f["detection_source"] = "gemini_visual"
-                        all_findings.append(f)
-                    providers_used.append("gemini")
-                    if not summary:
-                        summary = res.get("summary", "")
-                    friction = res.get("friction_rating", friction)
-            except Exception as e:
-                logger.debug("[gemini_audit_error] %s", e)
-
-        # 2. Groq UX/navigation audit
-        if self.groq.is_configured() and self.groq.health.status != "unhealthy":
-            try:
-                res = self.groq.audit_run(goal, screenshots, trajectory, heuristic_findings)
-                if res and "findings" in res:
-                    for f in res.get("findings", []):
-                        f["detection_source"] = "groq_ux"
-                        all_findings.append(f)
-                    providers_used.append("groq")
-                    if not summary:
-                        summary = res.get("summary", "")
-            except Exception as e:
-                logger.debug("[groq_audit_error] %s", e)
-
-        if not summary:
-            summary = f"Multi-model audit completed for goal: '{goal}'. {len(all_findings) + len(heuristic_findings)} findings identified."
-
-        provider_label = "+".join(providers_used) if providers_used else "heuristics"
-        return {
-            "summary": summary,
-            "friction_rating": friction,
-            "findings": all_findings,
-            "providers_used": providers_used,
-        }, provider_label
+        if loop and loop.is_running():
+            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as executor:
+                return executor.submit(
+                    asyncio.run,
+                    self.audit_run_ensemble_async(goal, screenshots, trajectory, heuristic_findings),
+                ).result()
+        else:
+            return asyncio.run(
+                self.audit_run_ensemble_async(goal, screenshots, trajectory, heuristic_findings)
+            )
 
 
     def get_health_status(self) -> dict[str, Any]:
