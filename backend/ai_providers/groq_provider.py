@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import io
 import json
+import logging
 import re
 import time
 from typing import Any
@@ -11,6 +12,8 @@ from openai import OpenAI, RateLimitError
 
 from ..config import GROQ_API_KEY, GROQ_API_KEY_2, GROQ_BASE_URL, GROQ_MODEL
 from .base import AIProvider
+
+logger = logging.getLogger("traceqa.groq")
 
 # Models that support vision (image) input on Groq
 _VISION_CAPABLE_GROQ_MODELS = {
@@ -246,16 +249,24 @@ class GroqProvider(AIProvider):
                     last_err = rle
                     if attempt == 0 and self.supports_vision:
                         # Try text-only mode next
+                        logger.warning("[groq_rate_limit_fallback] Rate limit on vision: %s; trying text-only", rle)
                         continue
                     else:
-                        # Exhausted attempts for this client
+                        # Exhausted attempts for this client — try next client if available
                         break
                 except Exception as e:
+                    last_err = e
+                    if attempt == 0 and use_vision:
+                        logger.warning("[groq_vision_fallback] Vision attempt failed: %s; trying text-only", e)
+                        continue
                     lat = (time.perf_counter() - start_time) * 1000.0
                     self.record_failure(str(e))
+                    if client_idx < len(clients_to_try) - 1:
+                        logger.warning("[groq_key_failover] Client %d failed: %s; failing over to secondary client", client_idx, e)
+                        break  # try next client
                     raise
 
-        # All clients exhausted on rate limit
+        # All clients exhausted
         lat = (time.perf_counter() - start_time) * 1000.0
         self.record_failure(str(last_err))
         raise last_err  # type: ignore[misc]
@@ -291,7 +302,7 @@ class GroqProvider(AIProvider):
                             "description": {"type": "string"},
                             "evidence": {"type": "string"},
                             "recommendation": {"type": "string"},
-                            "step": {"type": ["integer", "null"]},
+                            "step": {"type": "integer"},
                         },
                         "required": [
                             "category",
@@ -300,7 +311,6 @@ class GroqProvider(AIProvider):
                             "description",
                             "evidence",
                             "recommendation",
-                            "step",
                         ],
                     },
                 },
@@ -334,24 +344,38 @@ class GroqProvider(AIProvider):
             client_to_use = self.client_2
 
         try:
-            response = client_to_use.chat.completions.create(  # type: ignore[union-attr]
-                model=self.model,
-                temperature=0.1,
-                max_tokens=500,
-                timeout=22.0,
-                response_format={
-                    "type": "json_schema",
-                    "json_schema": {
-                        "name": "audit_report",
-                        "strict": True,
-                        "schema": schema,
+            try:
+                response = client_to_use.chat.completions.create(  # type: ignore[union-attr]
+                    model=self.model,
+                    temperature=0.1,
+                    max_tokens=600,
+                    timeout=22.0,
+                    response_format={
+                        "type": "json_schema",
+                        "json_schema": {
+                            "name": "audit_report",
+                            "strict": False,
+                            "schema": schema,
+                        },
                     },
-                },
-                messages=[
-                    {"role": "system", "content": system},
-                    {"role": "user", "content": user_content},
-                ],
-            )
+                    messages=[
+                        {"role": "system", "content": system},
+                        {"role": "user", "content": user_content},
+                    ],
+                )
+            except Exception as e_schema:
+                logger.debug("[groq_audit_schema_fallback] %s", e_schema)
+                response = client_to_use.chat.completions.create(  # type: ignore[union-attr]
+                    model=self.model,
+                    temperature=0.1,
+                    max_tokens=600,
+                    timeout=22.0,
+                    response_format={"type": "json_object"},
+                    messages=[
+                        {"role": "system", "content": system + "\nRespond with a valid JSON object matching the audit format."},
+                        {"role": "user", "content": user_content},
+                    ],
+                )
             lat = (time.perf_counter() - start_time) * 1000.0
             self.record_success(lat)
             content = response.choices[0].message.content or "{}"

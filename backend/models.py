@@ -44,6 +44,8 @@ class Issue(BaseModel):
 
 
 class Event(BaseModel):
+    seq: int = 0
+    step: int = 0
     ts: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
     kind: str
     message: str
@@ -162,8 +164,31 @@ class RunState(BaseModel):
     # queued | starting | navigating | page_ready | exploring | verifying
     # | auditing | completed | partial | failed | cancelled | blocked
     phase: str = "queued"
+    state_version: int = 1
+    updated_at: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+
+    # Browser and page explicit states
+    browser_state: str = "starting"  # starting | started | navigating | ready | failed | closed
+    content_state: str = "loading"   # loading | ready | blank | blocked | error
+    page_status: str = "loading"     # loading | ready | blank | blocked | error
+
     # Screenshot state: pending | available | failed
     screenshot_status: str = "pending"
+    screenshot_step: int = 0
+    screenshot_timestamp: str | None = None
+
+    # Step and event tracking
+    latest_step: int = 0
+    latest_event: str = "queued"
+
+    # Goal and verification explicit states
+    goal_status: str = "pending"  # pending | verified | partial | failed
+    goal_verified: bool = False
+
+    # Audit and report status
+    audit_status: str = "pending"   # pending | running | completed
+    report_status: str = "pending"  # pending | generating | ready
+
     # Run lifecycle
     status: Literal["queued", "running", "completed", "failed", "cancelled", "partial", "blocked"] = "queued"
     started_at: str | None = None
@@ -181,6 +206,7 @@ class RunState(BaseModel):
     error: str | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     journey: dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "edges": []})
+    trajectory: list[dict[str, Any]] = Field(default_factory=list)
 
 
 

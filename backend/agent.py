@@ -139,18 +139,27 @@ class AutonomousTester:
                 )
 
                 if nav_diag.navigation_state == "usable":
-                    # ── Capture initial screenshot immediately after nav_success ──
-                    # This is the FIX for the "Connecting..." bug:
-                    # latest_screenshot is set NOW so frontend sees real content
-                    # instead of staying stuck on the connecting placeholder.
+                    self.run.browser_state = "ready"
+                    self.run.content_state = "ready"
+                    self.run.page_status = "ready"
+                    self.run.phase = "page_ready"
+                    self.run.current_url = nav_diag.final_url or effective_url
+                    self.run.last_observed_url = nav_diag.final_url or effective_url
+                    self.run.state_version += 1
+                    self.run.updated_at = datetime.now(timezone.utc).isoformat()
+
                     initial_shot_url = await browser.capture_initial_screenshot(self.run.id)
                     if initial_shot_url:
                         self.run.latest_screenshot = initial_shot_url
                         self.run.screenshot_status = "available"
+                        self.run.screenshot_step = 0
+                        self.run.screenshot_timestamp = datetime.now(timezone.utc).isoformat()
                     else:
                         self.run.screenshot_status = "pending"
 
-                    self.run.phase = "page_ready"
+                    self.run.state_version += 1
+                    self.run.updated_at = datetime.now(timezone.utc).isoformat()
+
                     await self._log(
                         "nav_success",
                         f"Target loaded — URL: {nav_diag.final_url} | Title: {nav_diag.title}",
@@ -160,6 +169,7 @@ class AutonomousTester:
                         body_text_length=nav_diag.body_text_length,
                         interactive_elements=nav_diag.interactive_elements,
                         screenshot=initial_shot_url,
+                        step=0,
                     )
                 else:
                     # ── Phase 6: Blank-page gate ───────────────────────
@@ -222,6 +232,11 @@ class AutonomousTester:
                     self.screenshots.append(obs.screenshot)
                     self.run.latest_screenshot = f"/artifacts/{self.run.id}/step_{step:03d}.png"
                     self.run.screenshot_status = "available"
+                    self.run.screenshot_step = step
+                    self.run.screenshot_timestamp = datetime.now(timezone.utc).isoformat()
+                    self.run.latest_step = step
+                    self.run.state_version += 1
+                    self.run.updated_at = datetime.now(timezone.utc).isoformat()
 
                     # Real-time URL synchronization
                     current_url = browser.get_current_url() or obs.url
@@ -462,17 +477,24 @@ class AutonomousTester:
                     }
                     pass_history.append(record)
                     self.trajectory.append(record)
+                    self.run.trajectory = list(self.trajectory)
                     self.run.step_count += 1
                     self.run.journey = {"nodes": self.journey_nodes, "edges": self.journey_edges}
 
                     # ── Phase 12: Independent Goal Verification ──────────
                     if action == "finish" or decision.get("goal_complete"):
                         self.run.phase = "verifying"
+                        self.run.state_version += 1
+                        self.run.updated_at = datetime.now(timezone.utc).isoformat()
                         can_fin, evidence_str = GoalVerificationEngine.can_finish(self.goal_plan, obs)
                         if can_fin:
                             successful_paths += 1
                             self.run.goal_completed = True
+                            self.run.goal_status = "verified"
+                            self.run.goal_verified = True
                             self.run.goal_verification_evidence = evidence_str
+                            self.run.state_version += 1
+                            self.run.updated_at = datetime.now(timezone.utc).isoformat()
                             for n in self.journey_nodes:
                                 if n["id"] == node_id:
                                     n["is_goal"] = True
@@ -490,6 +512,10 @@ class AutonomousTester:
                             )
                             break
                         else:
+                            self.run.goal_status = "pending"
+                            self.run.phase = "exploring"
+                            self.run.state_version += 1
+                            self.run.updated_at = datetime.now(timezone.utc).isoformat()
                             await self._log(
                                 "goal_unverified",
                                 f"Completion proposed at step {step}, but independent verification rejected it: {evidence_str}. Continuing...",
@@ -507,8 +533,17 @@ class AutonomousTester:
 
                     # Recovery if agent flags stuck
                     if decision.get("stuck") and action != "back":
-                        await browser.back()
-                        await self._log("recovery", "Agent flagged stuck state; executed backward navigation")
+                        curr = browser.get_current_url()
+                        if curr and curr not in ("about:blank", self.run.normalized_target_url, self.run.original_target_url):
+                            await browser.back()
+                            await self._log("recovery", "Agent flagged stuck state; executed backward navigation", step=step)
+                        else:
+                            await self._log("recovery", "Agent flagged stuck state; refreshing page to recover", step=step)
+                            if browser.page:
+                                try:
+                                    await browser.page.reload(wait_until="domcontentloaded", timeout=6000)
+                                except Exception:
+                                    pass
 
                 # End of step loop
                 await browser.close()
@@ -522,6 +557,9 @@ class AutonomousTester:
 
             # ── Phase 21: Audit Guard ──────────────────────────────────
             self.run.phase = "auditing"
+            self.run.audit_status = "running"
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
             await self._log("audit", "Executing accessibility and layout heuristics audit")
             logger.info("[evidence_captured] run_id=%s steps=%d", self.run.id, self.run.step_count)
 
@@ -565,6 +603,7 @@ class AutonomousTester:
 
             combined_issues = self._dedupe_issues(heuristic_issues + ai_issues)
             self.run.issues = combined_issues
+            self.run.audit_status = "completed"
 
             # Add navigation issue to findings if target was problematic
             if not audit_available:
@@ -592,6 +631,11 @@ class AutonomousTester:
             self.run.metrics["audit_provider"] = audit_provider
 
             run_status = "completed" if self.run.goal_completed else "partial"
+            self.run.report_status = "generating"
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
+            self.run.trajectory = list(self.trajectory)
+
             summary_text = (
                 ai_audit.get("summary")
                 or f"Audit completed for goal '{self.request.goal}' with {len(self.run.issues)} findings."
@@ -622,17 +666,20 @@ class AutonomousTester:
                 goal_verification_evidence=self.run.goal_verification_evidence,
             )
 
-
             self.run.report_url = f"/artifacts/{self.run.id}/report.html"
-            self.run.status = "completed"
-            self.run.phase = "completed"
+            self.run.report_status = "ready"
+            self.run.status = run_status
+            self.run.phase = run_status
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
             logger.info(
-                "[run_completed] run_id=%s issues=%d friction=%s wcag=%s goal_completed=%s",
+                "[run_completed] run_id=%s issues=%d friction=%s wcag=%s goal_completed=%s status=%s",
                 self.run.id, len(self.run.issues),
                 self.run.metrics.get("friction_score"),
                 self.run.metrics.get("wcag_grade"),
                 self.run.goal_completed,
+                run_status,
             )
             await self._log(
                 "done",
@@ -651,25 +698,34 @@ class AutonomousTester:
             # Graceful cancellation
             self.run.status = "cancelled"
             self.run.phase = "cancelled"
+            self.run.browser_state = "closed"
             self.run.error = "Run cancelled by user."
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
             logger.info("[run_cancelled] run_id=%s", self.run.id)
             raise
 
         except Exception as exc:
             self.run.status = "failed"
             self.run.phase = "failed"
+            self.run.browser_state = "failed"
             self.run.error = str(exc)
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
             logger.error("[run_failed] run_id=%s error=%s", self.run.id, str(exc)[:200])
             await self._log("error", f"Run failed: {str(exc)}")
 
         finally:
             # Always close browser regardless of how we exit
+            self.run.browser_state = "closed"
+            self.run.state_version += 1
+            self.run.updated_at = datetime.now(timezone.utc).isoformat()
             try:
                 await browser.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[browser_close_error] %s", e)
 
     # ------------------------------------------------------------------
     # Phase 12 — Independent Goal Verification

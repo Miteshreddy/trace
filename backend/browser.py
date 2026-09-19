@@ -189,21 +189,26 @@ class BrowserRunner:
 
     async def close(self) -> None:
         """Reliably close all Playwright resources."""
+        if self.page:
+            try:
+                await self.page.close()
+            except Exception as e:
+                logger.debug("[page_close_error] %s", e)
         if self.context:
             try:
                 await self.context.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[context_close_error] %s", e)
         if self.browser:
             try:
                 await self.browser.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[browser_close_error] %s", e)
         if self.playwright:
             try:
                 await self.playwright.stop()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.debug("[playwright_stop_error] %s", e)
         self.context = None
         self.browser = None
         self.playwright = None
@@ -334,24 +339,45 @@ class BrowserRunner:
 
         return diag
 
+    @staticmethod
+    def validate_screenshot_file(file_path: Path) -> bool:
+        """Verify screenshot file exists on disk, is non-empty, and is a readable image."""
+        try:
+            if not file_path.exists():
+                return False
+            if file_path.stat().st_size < 1000:
+                return False
+            with Image.open(file_path) as img:
+                w, h = img.size
+                if w < 50 or h < 50:
+                    return False
+            return True
+        except Exception as e:
+            logger.warning("[screenshot_validation_failed] path=%s error=%s", file_path, e)
+            return False
+
     async def capture_initial_screenshot(self, run_id: str) -> str | None:
         """
         Capture a screenshot immediately after navigation succeeds.
         Saves as step_000.png (the pre-exploration screenshot).
         Returns the /artifacts URL string, or None if capture fails.
-
-        This is the fix for the 'Connecting...' state bug:
-        nav_success fires but latest_screenshot was only set at step 1+ (inside observe()).
-        By capturing here, the frontend can show real content immediately.
         """
         if not self.page:
             return None
         try:
-            # Brief settle to ensure the page is visually ready
-            await self.page.wait_for_timeout(500)
+            self.artifact_dir.mkdir(parents=True, exist_ok=True)
+            # Brief settle to ensure the page is visually rendered
+            try:
+                await self.page.wait_for_load_state("domcontentloaded", timeout=4000)
+            except Exception:
+                pass
+            await self.page.wait_for_timeout(350)
             raw = await self.page.screenshot(full_page=False)
             shot_path = self.artifact_dir / "step_000.png"
             shot_path.write_bytes(raw)
+            if not self.validate_screenshot_file(shot_path):
+                logger.warning("[initial_screenshot_invalid] path=%s size=%d", shot_path, len(raw))
+                return None
             logger.info(
                 "[initial_screenshot_captured] path=%s size=%d bytes",
                 shot_path, len(raw),
@@ -607,8 +633,13 @@ class BrowserRunner:
                 final_img = Image.alpha_composite(img, overlay).convert("RGB")
                 shot_path = self.artifact_dir / f"step_{step:03d}.png"
                 final_img.save(shot_path, format="PNG")
-        except Exception:
-            pass
+        except Exception as exc:
+            logger.warning("[screenshot_annotation_failed] step=%d error=%s; falling back to raw screenshot", step, exc)
+            try:
+                shot_path = self.artifact_dir / f"step_{step:03d}.png"
+                shot_path.write_bytes(raw_screenshot)
+            except Exception as e2:
+                logger.error("[raw_screenshot_save_failed] step=%d error=%s", step, e2)
 
     # ------------------------------------------------------------------
     # UI Map & Accessibility Tree

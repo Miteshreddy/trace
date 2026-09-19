@@ -8,6 +8,7 @@ if sys.platform == "win32":
         asyncio.set_event_loop_policy(asyncio.WindowsProactorEventLoopPolicy())
     except Exception:
         pass
+from datetime import datetime, timezone
 import uuid
 from pathlib import Path
 from typing import Any
@@ -50,9 +51,15 @@ async def emit(run_id: str, event: Event) -> None:
     run = RUNS.get(run_id)
     if not run:
         return
+    event.seq = len(run.events) + 1
     run.events.append(event)
     if len(run.events) > 200:
         run.events = run.events[-200:]
+    run.latest_event = event.kind
+    if event.step:
+        run.latest_step = max(run.latest_step, event.step)
+    run.state_version += 1
+    run.updated_at = datetime.now(timezone.utc).isoformat()
 
 
 async def run_task(run_id: str, req: RunCreate) -> None:
@@ -368,7 +375,14 @@ async def cancel_run(run_id: str) -> dict[str, Any]:
     if task and not task.done():
         task.cancel()
         if run_id in RUNS:
-            RUNS[run_id].status = "cancelled"
-            RUNS[run_id].error = "User cancelled execution."
+            run = RUNS[run_id]
+            run.status = "cancelled"
+            run.phase = "cancelled"
+            run.browser_state = "closed"
+            run.error = "User cancelled execution."
+            run.finished_at = datetime.now(timezone.utc).isoformat()
+            run.state_version += 1
+            run.updated_at = datetime.now(timezone.utc).isoformat()
+            await emit(run_id, Event(kind="cancelled", message="Run cancelled by user request"))
         return {"cancelled": True}
     return {"cancelled": False, "message": "Task already completed or not found"}

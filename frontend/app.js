@@ -19,7 +19,9 @@
     events: [],
     poller: null,
     filter: 'all',
-    homeDemoStarted: false
+    homeDemoStarted: false,
+    latestRunVersion: 0,
+    latestEventSeq: 0
   };
 
   const $ = (sel) => document.querySelector(sel);
@@ -558,7 +560,6 @@
   function startRunPolling(runId) {
     if (state.poller) clearInterval(state.poller);
 
-    let lastEventCount = 0;
     const poll = async () => {
       try {
         const [runRes, eventsRes] = await Promise.all([
@@ -568,12 +569,24 @@
 
         if (!runRes.ok) return;
         const run = await runRes.json();
+
+        // Monotonic version ordering check
+        if (run.state_version && state.latestRunVersion && run.state_version < state.latestRunVersion) {
+          return; // Ignore stale response
+        }
+        if (run.state_version) {
+          state.latestRunVersion = run.state_version;
+        }
         state.runData = run;
 
         let events = [];
         if (eventsRes.ok) {
           const evData = await eventsRes.json();
           events = evData.events || [];
+          // Deduplicate and order by sequence
+          if (events.length > 0 && events[0].seq) {
+            events.sort((a, b) => (a.seq || 0) - (b.seq || 0));
+          }
           state.events = events;
         }
 
@@ -581,13 +594,13 @@
         updateLiveConsole(run, events);
 
         // Check completion
-        if (run.status === 'completed' || run.status === 'success') {
+        if (run.status === 'completed' || run.status === 'success' || run.status === 'partial') {
           clearInterval(state.poller);
           state.poller = null;
-          state.runStatus = 'success';
-          updateHeaderBadge('success', 'SUCCESS');
-          $('#liveStatus') && ($('#liveStatus').textContent = 'Audit complete');
-          showToast('Audit complete. Evidence and report are ready.');
+          state.runStatus = run.status === 'completed' ? 'success' : 'partial';
+          updateHeaderBadge(state.runStatus, state.runStatus.toUpperCase());
+          $('#liveStatus') && ($('#liveStatus').textContent = run.status === 'completed' ? 'Audit complete' : 'Audit partial');
+          showToast(`Audit run finished (${run.status}). Evidence and report are ready.`);
           setStepCompleted(6);
         } else if (run.status === 'failed') {
           clearInterval(state.poller);
@@ -595,7 +608,14 @@
           state.runStatus = 'failed';
           updateHeaderBadge('failed', 'FAILED');
           $('#liveStatus') && ($('#liveStatus').textContent = run.error || 'Execution halted');
-          showToast('Audit run stopped.');
+          showToast('Audit run stopped: ' + (run.error ? run.error.slice(0, 60) : 'failed'));
+        } else if (run.status === 'cancelled') {
+          clearInterval(state.poller);
+          state.poller = null;
+          state.runStatus = 'failed';
+          updateHeaderBadge('failed', 'CANCELLED');
+          $('#liveStatus') && ($('#liveStatus').textContent = 'Execution cancelled by user');
+          showToast('Audit run cancelled.');
         }
 
       } catch (e) {
@@ -604,7 +624,7 @@
     };
 
     poll();
-    state.poller = setInterval(poll, 900);
+    state.poller = setInterval(poll, 850);
   }
 
   function updateLiveConsole(run, events) {
@@ -726,13 +746,28 @@
     // Do NOT infer "connecting" from absence of screenshot.
     // Do NOT contradict nav_success with a "connecting" overlay.
 
-    if (run.latest_screenshot && run.screenshot_status !== 'failed') {
+    if (run.latest_screenshot && run.screenshot_status === 'available') {
       // Real screenshot available — show it
       hideAllScreens();
       if (screenshotImg) {
         if (screenshotImg.dataset.lastSrc !== run.latest_screenshot) {
           screenshotImg.dataset.lastSrc = run.latest_screenshot;
-          screenshotImg.src = run.latest_screenshot + '?t=' + Date.now();
+          screenshotImg.onerror = () => {
+            screenshotImg.style.display = 'none';
+            if (navigatingScreen) {
+              navigatingScreen.style.display = 'flex';
+              const navTitle = navigatingScreen.querySelector('.live-state-title');
+              if (navTitle) navTitle.textContent = 'Rendering evidence...';
+              const navSub = navigatingScreen.querySelector('.live-state-subtitle');
+              if (navSub) navSub.textContent = 'Awaiting viewport frame settle';
+            }
+          };
+          screenshotImg.onload = () => {
+            hideAllScreens();
+            screenshotImg.style.display = 'block';
+            if (cursor) cursor.style.display = 'block';
+          };
+          screenshotImg.src = run.latest_screenshot + '?t=' + (run.state_version || Date.now());
         }
         screenshotImg.style.display = 'block';
       }
@@ -749,6 +784,16 @@
           const evEl = $('#liveBlockedEvidence');
           if (evEl) evEl.textContent = run.error || run.final_url || 'Target returned automation challenge or security check';
         }
+      } else if (phase === 'cancelled' || run.status === 'cancelled') {
+        if (failedScreen) {
+          failedScreen.style.display = 'flex';
+          const title = failedScreen.querySelector('.live-state-title');
+          if (title) title.textContent = 'Run Cancelled';
+          const sub = failedScreen.querySelector('.live-state-subtitle');
+          if (sub) sub.textContent = 'Execution was halted by user request.';
+          const errEl = $('#liveFailedError');
+          if (errEl) errEl.textContent = run.error || 'User cancelled execution';
+        }
       } else if (phase === 'failed' || run.status === 'failed') {
         const navState = run.navigation_state;
         if (navState === 'blank') {
@@ -761,6 +806,10 @@
         } else {
           if (failedScreen) {
             failedScreen.style.display = 'flex';
+            const title = failedScreen.querySelector('.live-state-title');
+            if (title) title.textContent = 'Navigation Failed';
+            const sub = failedScreen.querySelector('.live-state-subtitle');
+            if (sub) sub.textContent = 'Could not establish a usable connection to the target URL.';
             const errEl = $('#liveFailedError');
             if (errEl) errEl.textContent = run.error || (run.navigation_diagnostics && run.navigation_diagnostics.error_message) || 'Navigation failed';
           }
@@ -790,9 +839,9 @@
           const navUrlEl = $('#liveNavigatingUrl');
           if (navUrlEl) navUrlEl.textContent = run.current_url || run.final_url || effectiveTarget;
           const navTitle = navigatingScreen.querySelector('.live-state-title');
-          if (navTitle) navTitle.textContent = 'Target loaded';
+          if (navTitle) navTitle.textContent = phase === 'auditing' ? 'Auditing interface...' : 'Target loaded';
           const navSub = navigatingScreen.querySelector('.live-state-subtitle');
-          if (navSub) navSub.textContent = 'Target page rendered — capturing browser evidence…';
+          if (navSub) navSub.textContent = phase === 'auditing' ? 'Evaluating accessibility and heuristic friction rules' : 'Target page rendered — capturing browser evidence…';
         }
       } else if (phase === 'completed' || phase === 'partial') {
         // Completed without screenshot (fallback)
@@ -1136,21 +1185,58 @@
       if (e.target.id === 'evidenceModal') closeEvidenceModal();
     });
 
-    // Check if there was an active run stored in session
-    if (state.activeRunId) {
-      fetch(`/api/runs/${state.activeRunId}`)
+    const rehydrateActiveView = () => {
+      const cleanPath = normalizePath(window.location.pathname);
+      const routeConfig = VALID_ROUTES[cleanPath] || VALID_ROUTES['/'];
+      if (routeConfig && routeConfig.view) {
+        onViewMounted(routeConfig.view);
+      }
+    };
+
+    const loadRunData = (runId) => {
+      return fetch(`/api/runs/${runId}`)
         .then((r) => r.ok ? r.json() : null)
         .then((data) => {
           if (data) {
+            state.activeRunId = data.id;
             state.runData = data;
+            state.latestRunVersion = data.state_version || 1;
+            sessionStorage.setItem('traceRunId', data.id);
+            if (data.events && data.events.length) {
+              state.events = data.events;
+            }
             if (data.status === 'running') {
               state.runStatus = 'running';
               updateHeaderBadge('running', 'RUNNING');
-              startRunPolling(state.activeRunId);
+              startRunPolling(data.id);
             } else if (data.status === 'completed' || data.status === 'success') {
               state.runStatus = 'success';
               updateHeaderBadge('success', 'SUCCESS');
+            } else if (data.status === 'partial') {
+              state.runStatus = 'partial';
+              updateHeaderBadge('partial', 'PARTIAL');
+            } else if (data.status === 'failed') {
+              state.runStatus = 'failed';
+              updateHeaderBadge('failed', 'FAILED');
+            } else if (data.status === 'cancelled') {
+              state.runStatus = 'failed';
+              updateHeaderBadge('failed', 'CANCELLED');
             }
+            rehydrateActiveView();
+          }
+        })
+        .catch((err) => console.warn('Failed to load run data:', err));
+    };
+
+    if (state.activeRunId) {
+      loadRunData(state.activeRunId);
+    } else {
+      // If no run in session, load the most recent run from the server
+      fetch('/api/runs')
+        .then((r) => r.ok ? r.json() : [])
+        .then((runs) => {
+          if (runs && runs.length > 0) {
+            loadRunData(runs[0].id);
           }
         })
         .catch(() => {});
