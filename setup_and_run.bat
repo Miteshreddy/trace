@@ -64,4 +64,4 @@ echo [4/4] Starting TRACE//QA server on http://127.0.0.1:8000 ...
 echo       (Keep this window open while using TRACE//QA. Press Ctrl+C to stop.)
 echo.
 start "" "http://127.0.0.1:8000"
-call ".venv\Scripts\python.exe" -m uvicorn backend.app:app --host 127.0.0.1 --port 8000
+call ".venv\Scripts\python.exe" -m uvicorn backend.app:app --host 127.0.0.1 --port 8000 --loop none

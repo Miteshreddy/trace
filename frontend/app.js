@@ -698,13 +698,20 @@
       }
     }
 
-    // Update steps based on progress
-    const step = run.step_count || events.length;
-    if (step >= 1) setStepCompleted(1);
-    if (step >= 2) setStepCompleted(2);
-    if (step >= 4) setStepCompleted(3);
-    if (step >= 8) setStepCompleted(4);
-    if (step >= 12) setStepCompleted(5);
+    // Update steps based on phase (single source of truth)
+    const phase = run.phase || 'queued';
+    const phaseOrder = {
+      'queued': 0, 'starting': 1, 'navigating': 1, 'page_ready': 2,
+      'exploring': 3, 'verifying': 4, 'auditing': 5,
+      'completed': 6, 'partial': 6, 'failed': 6, 'cancelled': 6, 'blocked': 6
+    };
+    const phaseNum = phaseOrder[phase] || 0;
+    if (phaseNum >= 1) setStepCompleted(1);
+    if (phaseNum >= 2) setStepCompleted(2);
+    if (phaseNum >= 3) setStepCompleted(3);
+    if (phaseNum >= 4) setStepCompleted(4);
+    if (phaseNum >= 5) setStepCompleted(5);
+    if (phaseNum >= 6) setStepCompleted(6);
 
     const hideAllScreens = () => {
       if (connectingScreen) connectingScreen.style.display = 'none';
@@ -714,47 +721,92 @@
       if (failedScreen) failedScreen.style.display = 'none';
     };
 
-    // Authentic State Rendering: Show screenshot if real screenshot exists, otherwise authentic diagnostic state
-    if (run.latest_screenshot) {
+    // ── Authoritative State Rendering ──────────────────────────────────────
+    // Derive visible state ONLY from run.phase (single source of truth).
+    // Do NOT infer "connecting" from absence of screenshot.
+    // Do NOT contradict nav_success with a "connecting" overlay.
+
+    if (run.latest_screenshot && run.screenshot_status !== 'failed') {
+      // Real screenshot available — show it
       hideAllScreens();
       if (screenshotImg) {
-        screenshotImg.src = run.latest_screenshot;
+        if (screenshotImg.dataset.lastSrc !== run.latest_screenshot) {
+          screenshotImg.dataset.lastSrc = run.latest_screenshot;
+          screenshotImg.src = run.latest_screenshot + '?t=' + Date.now();
+        }
         screenshotImg.style.display = 'block';
       }
       if (cursor) cursor.style.display = 'block';
     } else {
+      // No screenshot yet — show the appropriate diagnostic overlay based on phase
       if (screenshotImg) screenshotImg.style.display = 'none';
       if (cursor) cursor.style.display = 'none';
       hideAllScreens();
 
-      const navState = run.navigation_state || (run.navigation_diagnostics && run.navigation_diagnostics.navigation_state);
-
-      if (navState === 'blocked') {
+      if (phase === 'blocked') {
         if (blockedScreen) {
           blockedScreen.style.display = 'flex';
           const evEl = $('#liveBlockedEvidence');
           if (evEl) evEl.textContent = run.error || run.final_url || 'Target returned automation challenge or security check';
         }
-      } else if (navState === 'blank') {
-        if (blankScreen) {
-          blankScreen.style.display = 'flex';
-          const diagEl = $('#liveBlankDiagnostics');
-          const d = run.navigation_diagnostics || {};
-          if (diagEl) diagEl.textContent = `Body: ${d.body_text_length || 0} chars | Controls: ${d.interactive_elements || 0} | URL: ${run.final_url || effectiveTarget}`;
+      } else if (phase === 'failed' || run.status === 'failed') {
+        const navState = run.navigation_state;
+        if (navState === 'blank') {
+          if (blankScreen) {
+            blankScreen.style.display = 'flex';
+            const diagEl = $('#liveBlankDiagnostics');
+            const d = run.navigation_diagnostics || {};
+            if (diagEl) diagEl.textContent = `Body: ${d.body_text_length || 0} chars | Controls: ${d.interactive_elements || 0} | URL: ${run.final_url || effectiveTarget}`;
+          }
+        } else {
+          if (failedScreen) {
+            failedScreen.style.display = 'flex';
+            const errEl = $('#liveFailedError');
+            if (errEl) errEl.textContent = run.error || (run.navigation_diagnostics && run.navigation_diagnostics.error_message) || 'Navigation failed';
+          }
         }
-      } else if (run.status === 'failed' || navState === 'error') {
-        if (failedScreen) {
-          failedScreen.style.display = 'flex';
-          const errEl = $('#liveFailedError');
-          if (errEl) errEl.textContent = run.error || (run.navigation_diagnostics && run.navigation_diagnostics.error_message) || 'Navigation failed';
+      } else if (phase === 'queued' || phase === 'starting') {
+        // Browser not started yet — show connecting
+        if (connectingScreen) {
+          connectingScreen.style.display = 'flex';
+          const connUrlEl = $('#liveConnectingUrl');
+          if (connUrlEl) connUrlEl.textContent = effectiveTarget;
         }
-      } else if (run.status === 'running') {
+      } else if (phase === 'navigating') {
+        // Browser launched and navigating — show navigating overlay (NOT "connecting")
         if (navigatingScreen) {
           navigatingScreen.style.display = 'flex';
           const navUrlEl = $('#liveNavigatingUrl');
           if (navUrlEl) navUrlEl.textContent = effectiveTarget;
+          const navTitle = navigatingScreen.querySelector('.live-state-title');
+          if (navTitle) navTitle.textContent = 'Opening target...';
+          const navSub = navigatingScreen.querySelector('.live-state-subtitle');
+          if (navSub) navSub.textContent = 'Navigating Chromium and awaiting initial DOM rendering';
+        }
+      } else if (phase === 'page_ready' || phase === 'exploring' || phase === 'verifying' || phase === 'auditing') {
+        // Navigation succeeded — screenshot capture is in progress, show navigating (not connecting)
+        if (navigatingScreen) {
+          navigatingScreen.style.display = 'flex';
+          const navUrlEl = $('#liveNavigatingUrl');
+          if (navUrlEl) navUrlEl.textContent = run.current_url || run.final_url || effectiveTarget;
+          const navTitle = navigatingScreen.querySelector('.live-state-title');
+          if (navTitle) navTitle.textContent = 'Target loaded';
+          const navSub = navigatingScreen.querySelector('.live-state-subtitle');
+          if (navSub) navSub.textContent = 'Target page rendered — capturing browser evidence…';
+        }
+      } else if (phase === 'completed' || phase === 'partial') {
+        // Completed without screenshot (fallback)
+        if (navigatingScreen) {
+          navigatingScreen.style.display = 'flex';
+          const navUrlEl = $('#liveNavigatingUrl');
+          if (navUrlEl) navUrlEl.textContent = run.final_url || effectiveTarget;
+          const navTitle = navigatingScreen.querySelector('.live-state-title');
+          if (navTitle) navTitle.textContent = 'Run Finished';
+          const navSub = navigatingScreen.querySelector('.live-state-subtitle');
+          if (navSub) navSub.textContent = 'Audit complete. View evaluation results and report.';
         }
       } else {
+        // Unknown phase — default to connecting
         if (connectingScreen) {
           connectingScreen.style.display = 'flex';
           const connUrlEl = $('#liveConnectingUrl');

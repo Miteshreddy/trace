@@ -158,6 +158,12 @@ class RunState(BaseModel):
     redirect_chain: list[dict[str, Any]] = Field(default_factory=list)
     navigation_state: str = "unknown"
     navigation_diagnostics: NavigationDiagnostics = Field(default_factory=NavigationDiagnostics)
+    # ── Phase: single source of truth for the frontend state machine ──
+    # queued | starting | navigating | page_ready | exploring | verifying
+    # | auditing | completed | partial | failed | cancelled | blocked
+    phase: str = "queued"
+    # Screenshot state: pending | available | failed
+    screenshot_status: str = "pending"
     # Run lifecycle
     status: Literal["queued", "running", "completed", "failed", "cancelled", "partial", "blocked"] = "queued"
     started_at: str | None = None
@@ -175,4 +181,6 @@ class RunState(BaseModel):
     error: str | None = None
     metrics: dict[str, Any] = Field(default_factory=dict)
     journey: dict[str, Any] = Field(default_factory=lambda: {"nodes": [], "edges": []})
+
+
 

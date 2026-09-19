@@ -84,6 +84,7 @@ class AutonomousTester:
         effective_url = normalized_url
 
         self.run.status = "running"
+        self.run.phase = "starting"
         self.run.started_at = datetime.now(timezone.utc).isoformat()
 
         logger.info(
@@ -114,6 +115,7 @@ class AutonomousTester:
 
             for pass_no in range(1, total_passes + 1):
                 logger.info("[browser_launch] pass=%d target=%s", pass_no, effective_url)
+                self.run.phase = "navigating"
                 await self._log(
                     "nav",
                     f"Launching browser — navigating to {effective_url}",
@@ -137,6 +139,18 @@ class AutonomousTester:
                 )
 
                 if nav_diag.navigation_state == "usable":
+                    # ── Capture initial screenshot immediately after nav_success ──
+                    # This is the FIX for the "Connecting..." bug:
+                    # latest_screenshot is set NOW so frontend sees real content
+                    # instead of staying stuck on the connecting placeholder.
+                    initial_shot_url = await browser.capture_initial_screenshot(self.run.id)
+                    if initial_shot_url:
+                        self.run.latest_screenshot = initial_shot_url
+                        self.run.screenshot_status = "available"
+                    else:
+                        self.run.screenshot_status = "pending"
+
+                    self.run.phase = "page_ready"
                     await self._log(
                         "nav_success",
                         f"Target loaded — URL: {nav_diag.final_url} | Title: {nav_diag.title}",
@@ -145,6 +159,7 @@ class AutonomousTester:
                         title=nav_diag.title,
                         body_text_length=nav_diag.body_text_length,
                         interactive_elements=nav_diag.interactive_elements,
+                        screenshot=initial_shot_url,
                     )
                 else:
                     # ── Phase 6: Blank-page gate ───────────────────────
@@ -158,6 +173,7 @@ class AutonomousTester:
                             f"Final URL: {nav_diag.final_url}. "
                             f"Body length: {nav_diag.body_text_length}."
                         )
+                        self.run.phase = "blocked"
                     elif nav_diag.navigation_state == "blank":
                         msg = (
                             f"Target page is blank or failed to render content{error_detail}. "
@@ -165,11 +181,13 @@ class AutonomousTester:
                             f"Body length: {nav_diag.body_text_length} chars, "
                             f"{nav_diag.interactive_elements} interactive elements."
                         )
+                        self.run.phase = "failed"
                     else:
                         msg = (
                             f"Target navigation resulted in state '{nav_diag.navigation_state}'{error_detail}. "
                             f"Final URL: {nav_diag.final_url}."
                         )
+                        self.run.phase = "failed"
 
                     logger.warning("[navigation_gate_fail] pass=%d %s", pass_no, msg)
                     await self._log(
@@ -183,6 +201,7 @@ class AutonomousTester:
 
                     # Still proceed to generate a partial report — don't crash silently
                     self.run.status = "failed"
+                    self.run.screenshot_status = "failed"
                     self.run.error = msg
                     self.run.finished_at = datetime.now(timezone.utc).isoformat()
                     await browser.close()
@@ -190,6 +209,7 @@ class AutonomousTester:
                     self._generate_failure_report(run_dir, msg, nav_diag)
                     return
 
+                self.run.phase = "exploring"
                 await self._log("pass", f"Exploration pass {pass_no} of {total_passes} started", pass_no=pass_no)
                 pass_history: list[dict[str, Any]] = []
                 seen_signatures: set[str] = set()
@@ -201,6 +221,7 @@ class AutonomousTester:
                     obs = await browser.observe(step)
                     self.screenshots.append(obs.screenshot)
                     self.run.latest_screenshot = f"/artifacts/{self.run.id}/step_{step:03d}.png"
+                    self.run.screenshot_status = "available"
 
                     # Real-time URL synchronization
                     current_url = browser.get_current_url() or obs.url
@@ -446,6 +467,7 @@ class AutonomousTester:
 
                     # ── Phase 12: Independent Goal Verification ──────────
                     if action == "finish" or decision.get("goal_complete"):
+                        self.run.phase = "verifying"
                         can_fin, evidence_str = GoalVerificationEngine.can_finish(self.goal_plan, obs)
                         if can_fin:
                             successful_paths += 1
@@ -499,6 +521,7 @@ class AutonomousTester:
             self.run.paths_discovered = max(successful_paths, 1 if self.run.goal_completed else 0)
 
             # ── Phase 21: Audit Guard ──────────────────────────────────
+            self.run.phase = "auditing"
             await self._log("audit", "Executing accessibility and layout heuristics audit")
             logger.info("[evidence_captured] run_id=%s steps=%d", self.run.id, self.run.step_count)
 
@@ -602,6 +625,7 @@ class AutonomousTester:
 
             self.run.report_url = f"/artifacts/{self.run.id}/report.html"
             self.run.status = "completed"
+            self.run.phase = "completed"
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
             logger.info(
                 "[run_completed] run_id=%s issues=%d friction=%s wcag=%s goal_completed=%s",
@@ -626,6 +650,7 @@ class AutonomousTester:
         except asyncio.CancelledError:
             # Graceful cancellation
             self.run.status = "cancelled"
+            self.run.phase = "cancelled"
             self.run.error = "Run cancelled by user."
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
             logger.info("[run_cancelled] run_id=%s", self.run.id)
@@ -633,6 +658,7 @@ class AutonomousTester:
 
         except Exception as exc:
             self.run.status = "failed"
+            self.run.phase = "failed"
             self.run.error = str(exc)
             self.run.finished_at = datetime.now(timezone.utc).isoformat()
             logger.error("[run_failed] run_id=%s error=%s", self.run.id, str(exc)[:200])

@@ -334,6 +334,33 @@ class BrowserRunner:
 
         return diag
 
+    async def capture_initial_screenshot(self, run_id: str) -> str | None:
+        """
+        Capture a screenshot immediately after navigation succeeds.
+        Saves as step_000.png (the pre-exploration screenshot).
+        Returns the /artifacts URL string, or None if capture fails.
+
+        This is the fix for the 'Connecting...' state bug:
+        nav_success fires but latest_screenshot was only set at step 1+ (inside observe()).
+        By capturing here, the frontend can show real content immediately.
+        """
+        if not self.page:
+            return None
+        try:
+            # Brief settle to ensure the page is visually ready
+            await self.page.wait_for_timeout(500)
+            raw = await self.page.screenshot(full_page=False)
+            shot_path = self.artifact_dir / "step_000.png"
+            shot_path.write_bytes(raw)
+            logger.info(
+                "[initial_screenshot_captured] path=%s size=%d bytes",
+                shot_path, len(raw),
+            )
+            return f"/artifacts/{run_id}/step_000.png"
+        except Exception as exc:
+            logger.warning("[initial_screenshot_failed] %s", exc)
+            return None
+
     async def _inspect_page_state(self, diag: NavigationDiagnostics) -> NavigationDiagnostics:
         """
         Inspect the current page and classify its navigation state.
