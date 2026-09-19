@@ -298,24 +298,53 @@
                   <div class="dots"><i></i><i></i><i></i></div>
                   <div class="address" id="liveBrowserAddress">⌁ &nbsp; http://127.0.0.1:8000/demo/</div>
                   <div class="browser-actions">
-                    <a class="browser-open-link" id="liveBrowserOpenLink" href="/demo/" target="_blank" title="Open target website">Open ↗</a>
+                    <a class="browser-open-link" id="liveBrowserOpenLink" href="/demo/" target="_blank" rel="noopener noreferrer" title="Open target website">Open ↗</a>
                   </div>
                 </div>
                 <div class="browser-page" id="liveBrowserPage">
                   <img id="liveScreenshotImg" class="live-screenshot-img" style="display:none;" alt="Live Viewport">
-                  <div id="liveBrowserMock" style="width:100%;height:100%;">
-                    <div class="mock-nav"><b>Target Store</b><span>Catalog</span><span>Search</span><span>Cart</span><span class="grow"></span><span>Checkout</span></div>
-                    <div class="mock-main">
-                      <div class="mock-copy">
-                        <small>AUTONOMOUS EXPLORATION</small>
-                        <h3 id="mockTitle">Active Target<br>Viewport.</h3>
-                        <p id="mockDesc">Live target application surface being explored by TRACE.</p>
-                      </div>
-                      <div class="mock-art"><span class="shape one"></span><span class="shape two"></span><span class="shape three"></span></div>
-                    </div>
-                    <div class="mock-cards"><span></span><span></span><span></span></div>
-                    <div class="cursor live-cursor" id="liveCursor"><i></i><b id="liveCursorLabel">Exploring interface</b></div>
+                  
+                  <!-- Connecting State -->
+                  <div id="liveConnectingState" class="live-state-screen" style="display:flex;">
+                    <div class="live-state-spinner"></div>
+                    <div class="live-state-title">Connecting to target...</div>
+                    <div class="live-state-subtitle">Initializing browser session and probing target endpoint</div>
+                    <div class="live-state-badge" id="liveConnectingUrl">http://127.0.0.1:8000/demo/</div>
                   </div>
+
+                  <!-- Navigating State -->
+                  <div id="liveNavigatingState" class="live-state-screen" style="display:none;">
+                    <div class="live-state-spinner"></div>
+                    <div class="live-state-title">Opening target...</div>
+                    <div class="live-state-subtitle">Navigating Chromium and awaiting initial DOM rendering</div>
+                    <div class="live-state-badge" id="liveNavigatingUrl"></div>
+                  </div>
+
+                  <!-- Blocked State -->
+                  <div id="liveBlockedState" class="live-state-screen warning" style="display:none;">
+                    <div class="live-state-icon">🛡️</div>
+                    <div class="live-state-title">Target Blocked Automation</div>
+                    <div class="live-state-subtitle" id="liveBlockedSubtitle">The target website presented an anti-bot challenge, interstitial, or security check.</div>
+                    <div class="live-state-badge" id="liveBlockedEvidence"></div>
+                  </div>
+
+                  <!-- Blank State -->
+                  <div id="liveBlankState" class="live-state-screen warning" style="display:none;">
+                    <div class="live-state-icon">⚠️</div>
+                    <div class="live-state-title">Target Page Rendered Blank</div>
+                    <div class="live-state-subtitle" id="liveBlankSubtitle">Navigation succeeded but the target page did not render usable DOM content.</div>
+                    <div class="live-state-badge" id="liveBlankDiagnostics"></div>
+                  </div>
+
+                  <!-- Failed State -->
+                  <div id="liveFailedState" class="live-state-screen error" style="display:none;">
+                    <div class="live-state-icon">✕</div>
+                    <div class="live-state-title">Navigation Failed</div>
+                    <div class="live-state-subtitle" id="liveFailedSubtitle">Could not establish a usable connection to the target URL.</div>
+                    <div class="live-state-badge" id="liveFailedError"></div>
+                  </div>
+
+                  <div class="cursor live-cursor" id="liveCursor" style="display:none;"><i></i><b id="liveCursorLabel">Exploring interface</b></div>
                 </div>
               </div>
             </div>

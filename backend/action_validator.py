@@ -1,9 +1,25 @@
 from __future__ import annotations
 
 import logging
+from urllib.parse import urlparse
 from typing import Any
 
 logger = logging.getLogger("traceqa.action_validator")
+
+# Schemes explicitly disallowed in any text/URL the agent may produce
+_BLOCKED_URL_SCHEMES = {
+    "javascript", "file", "data", "about", "chrome",
+    "chrome-extension", "ftp", "blob", "ws", "wss",
+}
+
+
+def _contains_unsafe_url(text: str) -> bool:
+    """Return True if text contains an unsafe URL scheme."""
+    lower = text.lower().strip()
+    for scheme in _BLOCKED_URL_SCHEMES:
+        if lower.startswith(scheme + ":"):
+            return True
+    return False
 
 ALLOWED_ACTIONS = {
     "click",
@@ -78,7 +94,7 @@ class ActionValidator:
                 "stuck": True,
             }, f"Action '{action}' is not in allowed actions list."
 
-        valid_eids = {e.get("id") for e in ui_map if e.get("id")}
+        valid_eids = {e.get("id") for e in ui_map if isinstance(e, dict) and e.get("id")}
 
         # 1. Validate 'click'
         if action == "click":
@@ -134,7 +150,7 @@ class ActionValidator:
                     "stuck": True,
                 }, f"Input element '{eid}' not found in observable DOM map."
 
-            # Sanitize text: prevent massive text floods or script tags
+            # Sanitize text: prevent massive text floods, script tags, or unsafe URL schemes
             if len(text) > 400:
                 raw_decision["text"] = text[:400]
             if "<script" in text.lower() or "javascript:" in text.lower():
@@ -142,6 +158,11 @@ class ActionValidator:
                     "action": "wait",
                     "rationale": "Type action contained disallowed script patterns.",
                 }, "Disallowed script pattern detected in input text."
+            if _contains_unsafe_url(text):
+                return False, {
+                    "action": "wait",
+                    "rationale": "Type action contained a disallowed URL scheme.",
+                }, f"Unsafe URL scheme detected in typed text: '{text[:40]}'."
 
         # 3. Validate 'scroll'
         elif action == "scroll":

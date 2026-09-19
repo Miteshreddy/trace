@@ -73,16 +73,39 @@ class JourneyGraph(BaseModel):
     edges: list[JourneyEdge] = Field(default_factory=list)
 
 
+class NavigationDiagnostics(BaseModel):
+    """Structured result of a browser navigation attempt."""
+    navigation_state: Literal["usable", "loading", "blank", "blocked", "error", "unknown"] = "unknown"
+    attempts: int = 0
+    final_url: str = ""
+    title: str = ""
+    body_text_length: int = 0
+    interactive_elements: int = 0
+    console_errors: list[str] = Field(default_factory=list)
+    page_errors: list[str] = Field(default_factory=list)
+    request_failures: list[str] = Field(default_factory=list)
+    error_type: str | None = None
+    error_message: str | None = None
+
+
 class RunState(BaseModel):
     id: str
     goal: str
     target_url: str
-    status: Literal["queued", "running", "completed", "failed"] = "queued"
+    # URL diagnostics — populated after normalization and navigation
+    original_target_url: str = ""
+    normalized_target_url: str = ""
+    final_url: str = ""
+    navigation_state: str = "unknown"
+    navigation_diagnostics: NavigationDiagnostics = Field(default_factory=NavigationDiagnostics)
+    # Run lifecycle
+    status: Literal["queued", "running", "completed", "failed", "cancelled"] = "queued"
     started_at: str | None = None
     finished_at: str | None = None
     step_count: int = 0
     paths_discovered: int = 0
     goal_completed: bool = False
+    goal_verification_evidence: str = ""
     issues: list[Issue] = Field(default_factory=list)
     events: list[Event] = Field(default_factory=list)
     latest_screenshot: str | None = None

@@ -518,9 +518,10 @@
     const openLink = $('#liveBrowserOpenLink');
     const stopBtn = $('#btnStopRun');
 
+    const effectiveTarget = state.targetUrl || (state.runData && (state.runData.normalized_target_url || state.runData.target_url)) || '';
     if (liveGoal && state.goal) liveGoal.textContent = state.goal;
-    if (liveAddress && state.targetUrl) liveAddress.textContent = '⌁   ' + state.targetUrl;
-    if (openLink && state.targetUrl) openLink.href = state.targetUrl;
+    if (liveAddress && effectiveTarget) liveAddress.textContent = '⌁   ' + effectiveTarget;
+    if (openLink && effectiveTarget) openLink.href = effectiveTarget;
 
     if (stopBtn) {
       stopBtn.onclick = async () => {
@@ -602,9 +603,30 @@
     const countEl = $('#liveEventCount');
     const feed = $('#liveActivityList');
     const screenshotImg = $('#liveScreenshotImg');
-    const mockView = $('#liveBrowserMock');
+    const connectingScreen = $('#liveConnectingState');
+    const navigatingScreen = $('#liveNavigatingState');
+    const blockedScreen = $('#liveBlockedState');
+    const blankScreen = $('#liveBlankState');
+    const failedScreen = $('#liveFailedState');
     const cursor = $('#liveCursor');
     const cursorLabel = $('#liveCursorLabel');
+
+    const effectiveTarget = run.normalized_target_url || run.target_url || state.targetUrl || '';
+    const openLink = $('#liveBrowserOpenLink');
+    if (openLink && effectiveTarget) {
+      openLink.href = effectiveTarget;
+    }
+
+    const liveAddress = $('#liveBrowserAddress');
+    if (liveAddress && effectiveTarget) {
+      if (run.final_url && run.final_url !== effectiveTarget) {
+        liveAddress.textContent = `⌁ ${effectiveTarget}  ➔  ${run.final_url}`;
+        liveAddress.title = `Target: ${effectiveTarget}\nObserved Final: ${run.final_url}`;
+      } else {
+        liveAddress.textContent = `⌁ ${effectiveTarget}`;
+        liveAddress.title = `Target: ${effectiveTarget}`;
+      }
+    }
 
     if (statusEl && run.status) {
       statusEl.textContent = run.status === 'running' ? `Step ${run.step_count || 0} — Exploring` : run.status.toUpperCase();
@@ -634,12 +656,60 @@
     if (step >= 8) setStepCompleted(4);
     if (step >= 12) setStepCompleted(5);
 
-    // Show latest screenshot if available (RunState field: latest_screenshot)
+    const hideAllScreens = () => {
+      if (connectingScreen) connectingScreen.style.display = 'none';
+      if (navigatingScreen) navigatingScreen.style.display = 'none';
+      if (blockedScreen) blockedScreen.style.display = 'none';
+      if (blankScreen) blankScreen.style.display = 'none';
+      if (failedScreen) failedScreen.style.display = 'none';
+    };
+
+    // Authentic State Rendering: Show screenshot if real screenshot exists, otherwise authentic diagnostic state
     if (run.latest_screenshot) {
-      if (screenshotImg && mockView) {
+      hideAllScreens();
+      if (screenshotImg) {
         screenshotImg.src = run.latest_screenshot;
         screenshotImg.style.display = 'block';
-        mockView.style.display = 'none';
+      }
+      if (cursor) cursor.style.display = 'block';
+    } else {
+      if (screenshotImg) screenshotImg.style.display = 'none';
+      if (cursor) cursor.style.display = 'none';
+      hideAllScreens();
+
+      const navState = run.navigation_state || (run.navigation_diagnostics && run.navigation_diagnostics.navigation_state);
+
+      if (navState === 'blocked') {
+        if (blockedScreen) {
+          blockedScreen.style.display = 'flex';
+          const evEl = $('#liveBlockedEvidence');
+          if (evEl) evEl.textContent = run.error || run.final_url || 'Target returned automation challenge or security check';
+        }
+      } else if (navState === 'blank') {
+        if (blankScreen) {
+          blankScreen.style.display = 'flex';
+          const diagEl = $('#liveBlankDiagnostics');
+          const d = run.navigation_diagnostics || {};
+          if (diagEl) diagEl.textContent = `Body: ${d.body_text_length || 0} chars | Controls: ${d.interactive_elements || 0} | URL: ${run.final_url || effectiveTarget}`;
+        }
+      } else if (run.status === 'failed' || navState === 'error') {
+        if (failedScreen) {
+          failedScreen.style.display = 'flex';
+          const errEl = $('#liveFailedError');
+          if (errEl) errEl.textContent = run.error || (run.navigation_diagnostics && run.navigation_diagnostics.error_message) || 'Navigation failed';
+        }
+      } else if (run.status === 'running') {
+        if (navigatingScreen) {
+          navigatingScreen.style.display = 'flex';
+          const navUrlEl = $('#liveNavigatingUrl');
+          if (navUrlEl) navUrlEl.textContent = effectiveTarget;
+        }
+      } else {
+        if (connectingScreen) {
+          connectingScreen.style.display = 'flex';
+          const connUrlEl = $('#liveConnectingUrl');
+          if (connUrlEl) connUrlEl.textContent = effectiveTarget;
+        }
       }
     }
 
@@ -649,12 +719,13 @@
       cursorLabel.textContent = lastEv.message ? lastEv.message.slice(0, 32) : 'Exploring';
     }
 
-    // Evidence toast on new findings
-    if (run.findings && run.findings.length > 0) {
+    // Evidence toast on new issues / findings (canonical contract)
+    const runIssues = run.issues || run.findings || [];
+    if (runIssues.length > 0) {
       const toast = $('#liveEvidenceToast');
       const msg = $('#evidenceToastMsg');
       if (toast && msg) {
-        msg.textContent = `${run.findings.length} findings recorded`;
+        msg.textContent = `${runIssues.length} issues recorded`;
         toast.style.display = 'flex';
       }
     }

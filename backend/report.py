@@ -19,12 +19,24 @@ def generate_report(
     summary: str,
     metrics: dict[str, Any],
     journey: dict[str, Any] | None = None,
+    original_target_url: str = "",
+    normalized_target_url: str = "",
+    final_url: str = "",
+    navigation_state: str = "",
+    navigation_diagnostics: dict[str, Any] | None = None,
+    goal_verification_evidence: str = "",
 ) -> None:
     # 1. Save machine-readable report.json
     data = {
         "run_id": run_id,
         "goal": goal,
         "target_url": target_url,
+        "original_target_url": original_target_url or target_url,
+        "normalized_target_url": normalized_target_url or target_url,
+        "final_url": final_url or target_url,
+        "navigation_state": navigation_state or "usable",
+        "navigation_diagnostics": navigation_diagnostics or {},
+        "goal_verification_evidence": goal_verification_evidence,
         "status": status,
         "metrics": metrics,
         "summary": summary,
@@ -397,10 +409,13 @@ def generate_report(
         <div class="brand-tag">TRACE//QA · Executive Audit Report</div>
         <h1>{html.escape(goal)}</h1>
         <div class="target-url">
-          Target: <code>{html.escape(target_url)}</code>
+          <span>Target: <code>{html.escape(target_url)}</code></span>
+          {f'<span>Observed Final: <code>{html.escape(final_url)}</code></span>' if final_url and final_url != target_url else ''}
+          <span>Nav State: <b style="color:{"#34d399" if navigation_state == "usable" else "#f87171"}">{html.escape((navigation_state or "usable").upper())}</b></span>
           <span>Status: <b>{html.escape(status.upper())}</b></span>
           <span>Run ID: <code>{html.escape(run_id)}</code></span>
         </div>
+        {f'<div style="margin-top:8px;font-size:12px;color:#a1a1aa;">Goal Verification Evidence: <code>{html.escape(goal_verification_evidence)}</code></div>' if goal_verification_evidence else ''}
       </div>
       <div class="header-actions">
         <a href="report.json" download class="btn">Download report.json</a>
